@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fox SMP – Оплата</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
+</head>
+<body>
+    <header>🦊 Fox SMP</header>
+
+    <div class="container center">
+        <div class="card" style="text-align: center;">
+            <h2>Выберите способ оплаты</h2>
+            <p>Доступ на сервер 30 дней</p>
+            <p style="font-size: 24px; color: var(--link-color);">⭐42 / 59.99₽</p>
+            
+            <button onclick="processStarsPayment()" style="margin-top: 20px; background: #ff6a00;">
+                ⭐ Оплатить звёздами (42⭐)
+            </button>
+            
+            <button onclick="processRubPayment()" style="margin-top: 10px; background: #2AABEE;">
+                💳 Оплатить картой (59.99₽)
+            </button>
+
+            <p style="margin-top: 15px; font-size: 0.8rem; color: var(--hint-color);">
+                Звёзды — оплата внутри Telegram<br>
+                Карта — безопасное перенаправление на сайт платёжной системы
+            </p>
+        </div>
+    </div>
+
+    <div class="foxMascot">🦊</div>
+
+    <script src="scripts.js" defer></script>
+</body>
+</html>

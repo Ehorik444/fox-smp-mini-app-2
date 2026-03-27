@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fox SMP – Главная</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+</head>
+<body>
+    <header>🦊 Fox SMP</header>
+
+    <div class="container">
+        <!-- Сервер -->
+        <div class="card">
+            <h2>Сервер</h2>
+            <p id="server-online">🟢 Онлайн: 12 игроков</p>
+            <p>Версия: 1.21.11</p>
+            <p>IP: fox-smp.com</p>
+            <button onclick="copyIP()">Скопировать IP</button>
+        </div>
+
+        <!-- Игрок -->
+        <div class="card">
+            <h2>Игрок</h2>
+            <div class="player">
+                <img id="skin" src="https://mc-heads.net/body/Steve" alt="скин" loading="lazy">
+                <div>
+                    <p>Ник: <span id="player-nick">Загрузка...</span></p>
+                    <p>Клан: <span id="player-clan">IronLegion</span></p>
+                    <p>Время: <span id="player-playtime">312</span> ч</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Статистика -->
+        <div class="card card-chart">
+            <h2>Статистика</h2>
+            <canvas id="statsChart"></canvas>
+            <div class="statsGrid">
+                <div>Блоков добыто: <span id="blocks-mined">92000</span></div>
+                <div>Мобов убито: <span id="mobs-killed">4920</span></div>
+                <div>Игроков убито: <span id="players-killed">32</span></div>
+                <div>Пройдено: <span id="distance">542</span> км</div>
+            </div>
+            <div class="loader" id="stats-loader" style="display: none;"></div>
+        </div>
+
+        <!-- Достижения (кратко) -->
+        <div class="card">
+            <h2>Достижения</h2>
+            <ul class="achievements" id="achievements-list">
+                <li class="done">Stone Age</li>
+                <li class="done">Diamonds!</li>
+                <li class="done">Into Fire</li>
+                <li class="todo">How Did We Get Here</li>
+            </ul>
+        </div>
+
+        <!-- Карта мира -->
+        <div class="card">
+            <h2>Карта мира</h2>
+            <iframe src="https://fox-smp.com/map" class="map" loading="lazy"></iframe>
+            <button onclick="openMapFull()">Открыть на весь экран</button>
+        </div>
+
+        <!-- Microsoft (уже авторизован) -->
+        <div class="card">
+            <h2>Microsoft</h2>
+            <p>Аккаунт подключен</p>
+            <button onclick="logout()">Выйти</button>
+        </div>
+    </div>
+
+    <div class="foxMascot">🦊</div>
+
+    <!-- Навигация -->
+    <nav class="nav">
+        <a href="home.html" class="nav-link nav-active">🏠</a>
+        <a href="stats.html" class="nav-link">📊</a>
+        <a href="achievements.html" class="nav-link">🏆</a>
+        <a href="clan.html" class="nav-link">⚔</a>
+        <a href="chat.html" class="nav-link">💬</a>
+    </nav>
+
+    <script src="scripts.js" defer></script>
+</body>
+</html>

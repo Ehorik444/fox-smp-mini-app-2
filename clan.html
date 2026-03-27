@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fox SMP – Клан</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <header>🦊 Fox SMP</header>
+
+    <div class="container">
+        <div class="card">
+            <h2>Клан IronLegion</h2>
+            <div class="members" id="clan-members">
+                <!-- загружается через JS -->
+            </div>
+            <button onclick="manageClan()">Управление кланом</button>
+        </div>
+
+        <div class="card">
+            <h2>База клана</h2>
+            <p>Координаты: 123 / 65 / -420</p>
+            <button onclick="openMapFull()">Показать на карте</button>
+        </div>
+    </div>
+
+    <div class="foxMascot">🦊</div>
+
+    <nav class="nav">
+        <a href="index.html" class="nav-link">🏠</a>
+        <a href="stats.html" class="nav-link">📊</a>
+        <a href="achievements.html" class="nav-link">🏆</a>
+        <a href="clan.html" class="nav-link nav-active">⚔</a>
+        <a href="chat.html" class="nav-link">💬</a>
+    </nav>
+
+    <script src="scripts.js"></script>
+</body>
+</html>
