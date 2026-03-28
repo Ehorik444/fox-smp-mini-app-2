@@ -1,22 +1,32 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Fox SMP - Статус сервера</title>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Fox SMP</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <h1>🦊 Fox SMP</h1>
-    <div class="card" id="status-card">
-        <h2>Статус сервера</h2>
-        <div id="online-status">Загрузка...</div>
-        <div id="players-count"></div>
-        <div id="motd" class="motd"></div>
-        <div id="players-list" class="player-list"></div>
-        <button onclick="refreshData()">🔄 Обновить</button>
+  <div class="container">
+    <div class="header">
+      <h1>🦊 Fox SMP</h1>
+      <p>Ваш сервер выживания</p>
     </div>
+    
+    <div class="card">
+      <h2>Статус сервера</h2>
+      <div id="status" class="status offline">Офлайн</div>
+      
+      <div class="players">
+        <h3>Игроки онлайн</h3>
+        <div id="players-list">—</div>
+      </div>
+      
+      <button id="refreshBtn" class="button">Обновить</button>
+    </div>
+  </div>
 
-    <script src="script.js"></script>
+  <script src="script.js"></script>
 </body>
 </html>
