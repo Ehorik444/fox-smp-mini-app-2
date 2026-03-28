@@ -5,10 +5,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --omit=dev
 
-# Устанавливаем PM2
 RUN npm install -g pm2
 
-# Копируем весь код (включая ecosystem.config.js)
 COPY . .
 
 ENV DATA_DIR=/app/data
@@ -16,5 +14,4 @@ RUN mkdir -p /app/data && chmod 777 /app/data
 
 EXPOSE 3000
 
-# Запускаем оба приложения через PM2
 CMD ["pm2-runtime", "start", "ecosystem.config.js"]
