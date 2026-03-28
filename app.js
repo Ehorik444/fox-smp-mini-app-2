@@ -1,4 +1,5 @@
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
@@ -20,6 +21,10 @@ const mimeTypes = {
   '.woff2': 'font/woff2'
 };
 
+// Настройки вашего сервера
+const MC_SERVER_ADDRESS = 'c11.play2go.cloud';
+const MC_SERVER_PORT = 20073;
+
 const server = http.createServer((req, res) => {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -31,21 +36,44 @@ const server = http.createServer((req, res) => {
     return res.end();
   }
   
-  // API для статуса сервера
+  // API для статуса сервера — реальный запрос к вашему серверу
   if (req.url === '/api/server-status' && req.method === 'GET') {
-    const isOnline = Math.random() > 0.3;
-    const maxPlayers = 20;
-    const onlinePlayers = isOnline ? Math.floor(Math.random() * (maxPlayers + 1)) : 0;
+    checkMinecraftServer(MC_SERVER_ADDRESS, MC_SERVER_PORT)
+      .then((serverData) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          online: true,
+          server: {
+            address: `${MC_SERVER_ADDRESS}:${MC_SERVER_PORT}`,
+            version: serverData.version || 'Неизвестно'
+          },
+          players: {
+            online: serverData.players?.online || 0,
+            max: serverData.players?.max || 20,
+            list: serverData.players?.list || []
+          },
+          motd: serverData.motd?.clean || 'Fox SMP',
+          icon: serverData.icon || null
+        }));
+      })
+      .catch((error) => {
+        console.error('❌ Ошибка проверки сервера:', error);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          online: false,
+          error: 'Сервер недоступен',
+          server: {
+            address: `${MC_SERVER_ADDRESS}:${MC_SERVER_PORT}`
+          },
+          players: {
+            online: 0,
+            max: 20,
+            list: []
+          }
+        }));
+      });
     
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({
-      online: isOnline,
-      players: {
-        online: onlinePlayers,
-        max: maxPlayers
-      },
-      version: '1.20.1'
-    }));
+    return;
   }
   
   // Определяем путь к файлу
@@ -111,4 +139,39 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Fox SMP Mini App запущено на порту ${PORT}`);
+  console.log(`🎮 Сервер: ${MC_SERVER_ADDRESS}:${MC_SERVER_PORT}`);
 });
+
+// Функция проверки статуса сервера
+function checkMinecraftServer(address, port) {
+  return new Promise((resolve, reject) => {
+    const apiUrl = `https://api.mcsrvstat.us/2/${address}:${port}`;
+    
+    https.get(apiUrl, (response) => {
+      let data = '';
+      
+      response.on('data', (chunk) => {
+        data += chunk;
+      });
+      
+      response.on('end', () => {
+        try {
+          const result = JSON.parse(data);
+          
+          if (result.debug?.ping === false) {
+            reject(new Error('Сервер не отвечает'));
+            return;
+          }
+          
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        }
+      });
+    }).on('error', (error) => {
+      reject(error);
+    }).setTimeout(5000, () => {
+      reject(new Error('Таймаут запроса'));
+    });
+  });
+}
