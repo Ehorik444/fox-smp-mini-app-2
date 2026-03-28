@@ -1,0 +1,24 @@
+version: '3.8'
+services:
+  bot:
+    build: .
+    command: node bot.js
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - WEBAPP_URL=${WEBAPP_URL}
+      - MC_HOST=${MC_HOST}
+      - MC_PORT=${MC_PORT}
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
+  web:
+    build: .
+    command: node web.js
+    ports:
+      - "3000:3000"
+    environment:
+      - MC_HOST=${MC_HOST}
+      - MC_PORT=${MC_PORT}
+      - PORT=3000
+    restart: unless-stopped
