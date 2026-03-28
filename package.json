@@ -6,12 +6,10 @@
   "scripts": {
     "start": "pm2-runtime start ecosystem.config.js",
     "bot": "node bot.js",
-    "web": "node app.js"
+    "server": "node server.js"
   },
   "dependencies": {
-    "cors": "^2.8.5",
     "dotenv": "^16.0.3",
-    "express": "^4.18.2",
     "mcquery": "^1.0.1",
     "node-telegram-bot-api": "^0.61.0"
   }
