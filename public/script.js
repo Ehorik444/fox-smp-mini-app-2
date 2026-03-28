@@ -1,39 +1,39 @@
-async function refreshData() {
-    try {
-        const response = await fetch('/api/status');
-        const data = await response.json();
-        updateUI(data);
-    } catch (error) {
-        console.error('Ошибка запроса:', error);
-        updateUI({ online: false, error: 'Ошибка соединения с сервером' });
-    }
+const tg = window.Telegram.WebApp;
+tg.expand();
+tg.ready();
+
+// Адаптация под тему Telegram
+document.body.style.backgroundColor = tg.themeParams.bg_color || '#ffffff';
+document.body.style.color = tg.themeParams.text_color || '#000000';
+
+// Данные пользователя
+if (tg.initDataUnsafe.user) {
+  console.log('👤 Пользователь:', tg.initDataUnsafe.user.first_name);
 }
 
-function updateUI(data) {
-    const onlineDiv = document.getElementById('online-status');
-    const playersCountDiv = document.getElementById('players-count');
-    const motdDiv = document.getElementById('motd');
-    const playersListDiv = document.getElementById('players-list');
-
-    if (data.online) {
-        onlineDiv.innerHTML = '<span class="online">✅ Сервер онлайн</span>';
-        playersCountDiv.innerHTML = `👥 Игроков: ${data.players_online} / ${data.max_players}`;
-        motdDiv.innerHTML = `📜 MOTD: ${data.motd || 'Нет'}`;
-        if (data.players && data.players.length) {
-            playersListDiv.innerHTML = data.players.map(p => `<div class="player">${p}</div>`).join('');
-        } else {
-            playersListDiv.innerHTML = '<div>Никого нет :(</div>';
-        }
-    } else {
-        onlineDiv.innerHTML = '<span class="offline">❌ Сервер недоступен</span>';
-        playersCountDiv.innerHTML = '';
-        motdDiv.innerHTML = '';
-        playersListDiv.innerHTML = '<div>Не удалось получить данные</div>';
-        if (data.error) {
-            playersListDiv.innerHTML += `<div style="color:#ff8888">Ошибка: ${data.error}</div>`;
-        }
-    }
+// Обновление статуса сервера (заглушка)
+function updateServerStatus() {
+  const statusEl = document.getElementById('status');
+  const playersEl = document.getElementById('players-list');
+  
+  // Здесь будет запрос к вашему Minecraft серверу
+  statusEl.textContent = 'Онлайн';
+  statusEl.className = 'status online';
+  playersEl.innerHTML = '🦊 Ehorik<br>🐺 Player2<br>🦊 Player3';
 }
 
-refreshData();
-setInterval(refreshData, 10000);
+// Кнопка обновления
+document.getElementById('refreshBtn').addEventListener('click', () => {
+  if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+  updateServerStatus();
+});
+
+// Инициализация
+updateServerStatus();
+
+// MainButton для быстрого действия
+tg.MainButton.setText('Присоединиться');
+tg.MainButton.show();
+tg.MainButton.onClick(() => {
+  tg.openTelegramLink('https://t.me/ваш_бот?start=join');
+});
