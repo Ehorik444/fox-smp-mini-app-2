@@ -1,16 +1,11 @@
 {
-  "name": "foxsmp-telegram",
+  "name": "fox-smp-mini-app",
   "version": "1.0.0",
-  "description": "Fox SMP Telegram Mini App",
-  "main": "bot.js",
+  "main": "app.js",
   "scripts": {
-    "start": "pm2-runtime start ecosystem.config.js",
-    "bot": "node bot.js",
-    "server": "node server.js"
+    "start": "node app.js"
   },
-  "dependencies": {
-    "dotenv": "^16.0.3",
-    "mcquery": "^1.0.1",
-    "node-telegram-bot-api": "^0.61.0"
+  "engines": {
+    "node": ">=14.0.0"
   }
 }
