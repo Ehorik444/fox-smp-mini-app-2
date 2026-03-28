@@ -1,0 +1,238 @@
+:root {
+    --bg-color: var(--tg-theme-bg-color, #0b0b0b);
+    --text-color: var(--tg-theme-text-color, #fff);
+    --hint-color: var(--tg-theme-hint-color, #aaa);
+    --link-color: var(--tg-theme-link-color, #ff6a00);
+    --btn-color: var(--tg-theme-button-color, #ff6a00);
+    --btn-text: var(--tg-theme-button-text-color, #fff);
+    --secondary-bg: var(--tg-theme-secondary-bg-color, #151515);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: var(--bg-color);
+    color: var(--text-color);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    transition: background 0.3s;
+}
+
+header {
+    text-align: center;
+    font-size: 28px;
+    padding: 15px;
+    color: var(--link-color);
+    font-weight: bold;
+}
+
+.container {
+    padding: 15px 15px 90px;
+}
+
+.container.center {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: 70vh;
+}
+
+.card {
+    background: var(--secondary-bg);
+    padding: 15px;
+    border-radius: 12px;
+    margin-bottom: 15px;
+    border: 1px solid rgba(255,255,255,0.05);
+    transition: transform 0.2s;
+}
+
+.card:hover {
+    transform: translateY(-2px);
+}
+
+.card-chart {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+h2 {
+    color: var(--link-color);
+    margin: 0 0 10px;
+    font-size: 1.3rem;
+}
+
+button, .nav-link {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    background: var(--btn-color);
+    color: var(--btn-text);
+    font-size: 16px;
+    font-weight: 500;
+    margin-top: 8px;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.1s;
+    text-decoration: none;
+    display: inline-block;
+    text-align: center;
+}
+
+button:active, .nav-link:active {
+    transform: scale(0.98);
+    opacity: 0.9;
+}
+
+.player {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+}
+
+.player img {
+    height: 100px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.1);
+}
+
+.statsGrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 15px;
+    font-size: 0.9rem;
+}
+
+.achievements {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.achievements li {
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.done { color: #00ff88; }
+.todo { color: #ff5555; }
+
+.members div {
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.chat {
+    height: 250px;
+    overflow-y: auto;
+    background: rgba(0,0,0,0.3);
+    padding: 12px;
+    border-radius: 12px;
+    font-size: 0.9rem;
+    scroll-behavior: smooth;
+}
+
+.chat div {
+    margin-bottom: 8px;
+    word-break: break-word;
+}
+
+.chatInput {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.chatInput input {
+    flex: 1;
+    padding: 12px;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: var(--text-color);
+    border-radius: 12px;
+    font-size: 1rem;
+}
+
+.chatInput input:focus {
+    outline: none;
+    border-color: var(--link-color);
+}
+
+.chat-status {
+    margin: 5px 0 0;
+    font-size: 0.8rem;
+    color: var(--hint-color);
+}
+
+.map {
+    width: 100%;
+    height: 200px;
+    border: none;
+    border-radius: 12px;
+    background: #1e1e1e;
+}
+
+.nav {
+    position: fixed;
+    bottom: 0;
+    width: 100%;
+    background: var(--secondary-bg);
+    display: flex;
+    backdrop-filter: blur(10px);
+    border-top: 1px solid rgba(255,255,255,0.1);
+    z-index: 1000;
+}
+
+.nav .nav-link {
+    flex: 1;
+    background: none;
+    color: var(--hint-color);
+    font-size: 1.5rem;
+    margin: 0;
+    border-radius: 0;
+    padding: 12px 0;
+}
+
+.nav .nav-link.nav-active {
+    color: var(--link-color);
+}
+
+.foxMascot {
+    position: fixed;
+    right: 15px;
+    bottom: 100px;
+    font-size: 48px;
+    animation: foxFloat 3s infinite ease-in-out;
+    pointer-events: none;
+    opacity: 0.7;
+    z-index: 500;
+}
+
+@keyframes foxFloat {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-12px); }
+}
+
+.loader {
+    border: 3px solid rgba(255,106,0,0.2);
+    border-top: 3px solid var(--link-color);
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    animation: spin 1s linear infinite;
+    margin: 10px auto;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+canvas {
+    max-height: 200px;
+    height: 200px;
+    width: 100%;
+    display: block;
+}
