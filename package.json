@@ -1,6 +1,7 @@
 {
   "name": "fox-smp-mini-app",
   "version": "1.0.0",
+  "description": "Mini App для Fox SMP сервера",
   "main": "app.js",
   "scripts": {
     "start": "node app.js"
