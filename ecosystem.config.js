@@ -5,8 +5,8 @@ module.exports = {
       script: 'bot.js'
     },
     {
-      name: 'web',
-      script: 'app.js'
+      name: 'server',
+      script: 'server.js'
     }
   ]
 };
