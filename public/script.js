@@ -50,10 +50,35 @@ async function checkServerStatus() {
   statusEl.innerHTML = '<span class="status-dot"></span><span class="status-text">Проверка...</span>';
   
   try {
-    // Здесь будет ваш реальный адрес сервера
-    // Пока используем заглушку
-    await simulateServerCheck();
+    const response = await fetch('/api/server-status');
+    const data = await response.json();
     
+    if (data.online) {
+      // Сервер онлайн
+      statusEl.className = 'status online';
+      statusEl.innerHTML = '<span class="status-dot"></span><span class="status-text">ОНЛАЙН</span>';
+      
+      // Количество игроков
+      playersCountEl.textContent = `${data.players.online} / ${data.players.max}`;
+      
+      // Список игроков
+      if (data.players.online > 0 && data.players.list && data.players.list.length > 0) {
+        playersListEl.innerHTML = data.players.list.map(player => `
+          <div class="player-item">
+            <div class="player-icon">${player.charAt(0).toUpperCase()}</div>
+            <span>${player}</span>
+          </div>
+        `).join('');
+      } else {
+        playersListEl.innerHTML = '<p class="empty-text">Никого нет онлайн</p>';
+      }
+    } else {
+      // Сервер офлайн
+      statusEl.className = 'status offline';
+      statusEl.innerHTML = '<span class="status-dot"></span><span class="status-text">ОФЛАЙН</span>';
+      playersCountEl.textContent = '0 / 20';
+      playersListEl.innerHTML = '<p class="empty-text">Сервер выключен</p>';
+    }
   } catch (error) {
     console.error('Ошибка проверки сервера:', error);
     statusEl.className = 'status offline';
@@ -63,62 +88,6 @@ async function checkServerStatus() {
     isRefreshing = false;
     refreshBtn.disabled = false;
   }
-}
-
-// Имитация проверки сервера (замените на реальный API)
-function simulateServerCheck() {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      // Случайный статус для демонстрации
-      const isOnline = Math.random() > 0.3;
-      
-      if (isOnline) {
-        // Сервер онлайн
-        statusEl.className = 'status online';
-        statusEl.innerHTML = '<span class="status-dot"></span><span class="status-text">ОНЛАЙН</span>';
-        
-        // Случайное количество игроков
-        const maxPlayers = 20;
-        const onlinePlayers = Math.floor(Math.random() * (maxPlayers + 1));
-        playersCountEl.textContent = `${onlinePlayers} / ${maxPlayers}`;
-        
-        // Генерация списка игроков
-        if (onlinePlayers > 0) {
-          const players = generateRandomPlayers(onlinePlayers);
-          playersListEl.innerHTML = players.map(p => `
-            <div class="player-item">
-              <div class="player-icon">${p.charAt(0)}</div>
-              <span>${p}</span>
-            </div>
-          `).join('');
-        } else {
-          playersListEl.innerHTML = '<p class="empty-text">Никого нет онлайн</p>';
-        }
-      } else {
-        // Сервер офлайн
-        statusEl.className = 'status offline';
-        statusEl.innerHTML = '<span class="status-dot"></span><span class="status-text">ОФЛАЙН</span>';
-        playersCountEl.textContent = '0 / 20';
-        playersListEl.innerHTML = '<p class="empty-text">Сервер выключен</p>';
-      }
-      
-      resolve();
-    }, 800);
-  });
-}
-
-// Генерация случайных ников игроков
-function generateRandomPlayers(count) {
-  const prefixes = ['Fox', 'Wolf', 'Bear', 'Eagle', 'Tiger', 'Lion', 'Shark', 'Ghost', 'Ninja', 'Hunter'];
-  const suffixes = ['_pro', '_gamer', '2024', '666', '_rus', '_live', '_x', '_yt', 'TV', 'GG'];
-  
-  const players = [];
-  for (let i = 0; i < count; i++) {
-    const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
-    const suffix = suffixes[Math.floor(Math.random() * suffixes.length)];
-    players.push(prefix + suffix);
-  }
-  return players;
 }
 
 // Автообновление каждые 30 секунд
