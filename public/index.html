@@ -14,6 +14,7 @@
   <nav class="nav">
     <button class="nav-btn active" data-page="status">📊 Статус</button>
     <button class="nav-btn" data-page="report">📝 Жалоба</button>
+    <button class="nav-btn" data-page="auth">🔐 Вход</button>
   </nav>
 
   <!-- Страница: Статус сервера -->
@@ -97,6 +98,26 @@
           <p class="form-note">* Поля обязательны для заполнения</p>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Страница: Авторизация -->
+  <div id="page-auth" class="page">
+    <div class="header">
+      <h1>🔐 Авторизация</h1>
+      <p>Проверка лицензии Minecraft</p>
+    </div>
+
+    <div class="card auth-card">
+      <div id="auth-status" class="auth-status">
+        <p class="auth-text">Нажмите кнопку ниже для входа через Microsoft</p>
+      </div>
+      
+      <button id="auth-btn" class="button auth-btn">
+        <span>🎮 Войти через Microsoft</span>
+      </button>
+      
+      <div id="auth-result" class="auth-result"></div>
     </div>
   </div>
 
