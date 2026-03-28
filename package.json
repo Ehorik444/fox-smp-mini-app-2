@@ -4,7 +4,12 @@
   "description": "Mini App для Fox SMP сервера",
   "main": "app.js",
   "scripts": {
-    "start": "node app.js"
+    "start": "node app.js",
+    "bot": "node bot.js",
+    "dev": "nodemon app.js"
+  },
+  "dependencies": {
+    "node-telegram-bot-api": "^0.61.0"
   },
   "engines": {
     "node": ">=14.0.0"
