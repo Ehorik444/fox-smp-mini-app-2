@@ -23,7 +23,6 @@ body {
   padding-bottom: 80px;
 }
 
-/* Навигация */
 .nav {
   display: flex;
   justify-content: space-around;
@@ -49,26 +48,20 @@ body {
   border-bottom: 3px solid transparent;
 }
 
-.nav-btn:hover {
-  opacity: 0.8;
-}
+.nav-btn:hover { opacity: 0.8; }
 
 .nav-btn.active {
   color: var(--tg-theme-button-color);
   border-bottom-color: var(--tg-theme-button-color);
 }
 
-/* Страницы */
 .page {
   display: none;
   padding-top: 60px;
 }
 
-.page.active {
-  display: block;
-}
+.page.active { display: block; }
 
-/* Контент */
 .header {
   text-align: center;
   padding: 20px 16px;
@@ -94,10 +87,7 @@ body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
-/* Статус сервера */
-.status-section {
-  margin-bottom: 24px;
-}
+.status-section { margin-bottom: 24px; }
 
 .status-section h2 {
   font-size: 18px;
@@ -116,20 +106,9 @@ body {
   gap: 8px;
 }
 
-.status.online {
-  background: #28a745;
-  color: white;
-}
-
-.status.offline {
-  background: #dc3545;
-  color: white;
-}
-
-.status.loading {
-  background: #ffc107;
-  color: #000;
-}
+.status.online { background: #28a745; color: white; }
+.status.offline { background: #dc3545; color: white; }
+.status.loading { background: #ffc107; color: #000; }
 
 .status-dot {
   display: inline-block;
@@ -145,7 +124,6 @@ body {
   50% { opacity: 0.5; }
 }
 
-/* Игроки онлайн */
 .players-section h3 {
   font-size: 16px;
   margin-bottom: 12px;
@@ -198,7 +176,6 @@ body {
   padding: 20px 0;
 }
 
-/* Кнопка обновления */
 .refresh-btn {
   width: 100%;
   margin-top: 16px;
@@ -232,10 +209,7 @@ body {
   100% { transform: rotate(360deg); }
 }
 
-/* Форма жалобы */
-.form-group {
-  margin-bottom: 20px;
-}
+.form-group { margin-bottom: 20px; }
 
 .form-group label {
   display: block;
@@ -278,9 +252,7 @@ body {
   margin-top: 4px;
 }
 
-.form-footer {
-  margin-top: 24px;
-}
+.form-footer { margin-top: 24px; }
 
 .submit-btn {
   width: 100%;
@@ -312,20 +284,10 @@ body {
   margin-top: 12px;
 }
 
-/* Скроллбар */
-.players-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.players-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
+.players-list::-webkit-scrollbar { width: 6px; }
+.players-list::-webkit-scrollbar-track { background: transparent; }
 .players-list::-webkit-scrollbar-thumb {
   background: rgba(0, 0, 0, 0.2);
   border-radius: 3px;
 }
-
-.players-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.3);
-}
+.players-list::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.3); }
