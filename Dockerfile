@@ -1,1 +1,17 @@
+FROM node:18-alpine
 
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm install --omit=dev
+
+RUN npm install -g pm2
+
+COPY . .
+
+ENV DATA_DIR=/app/data
+RUN mkdir -p /app/data && chmod 777 /app/data
+
+EXPOSE 3000
+
+CMD ["pm2-runtime", "start", "ecosystem.config.js"]
