@@ -2,24 +2,117 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fox SMP – Вход</title>
-    <link rel="stylesheet" href="style.css">
-    <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Fox SMP - Статус сервера</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            background: #1e1e2f;
+            color: #eee;
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+        }
+        .card {
+            background: #2a2a3a;
+            border-radius: 20px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+        .online {
+            color: #4caf50;
+            font-weight: bold;
+        }
+        .offline {
+            color: #f44336;
+        }
+        .player-list {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .player {
+            background: #3a3a4a;
+            padding: 5px 12px;
+            border-radius: 30px;
+            font-size: 14px;
+        }
+        button {
+            background: #4caf50;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 30px;
+            font-size: 16px;
+            margin-top: 10px;
+            cursor: pointer;
+        }
+        button:active {
+            background: #45a049;
+        }
+        .motd {
+            background: #00000080;
+            padding: 10px;
+            border-radius: 12px;
+            font-family: monospace;
+        }
+    </style>
 </head>
 <body>
-    <header>🦊 Fox SMP</header>
-
-    <div class="container center">
-        <div class="card" style="text-align: center;">
-            <h2>Добро пожаловать!</h2>
-            <p>Для доступа к серверу необходимо авторизоваться через Microsoft.</p>
-            <button id="loginBtn" onclick="loginMicrosoft()" style="margin-top: 20px;">🔑 Войти через Microsoft</button>
-        </div>
+    <h1>🦊 Fox SMP</h1>
+    <div class="card" id="status-card">
+        <h2>Статус сервера</h2>
+        <div id="online-status">Загрузка...</div>
+        <div id="players-count"></div>
+        <div id="motd" class="motd"></div>
+        <div id="players-list" class="player-list"></div>
+        <button onclick="refreshData()">🔄 Обновить</button>
     </div>
 
-    <div class="foxMascot">🦊</div>
+    <script>
+        function updateUI(data) {
+            const onlineDiv = document.getElementById('online-status');
+            const playersCountDiv = document.getElementById('players-count');
+            const motdDiv = document.getElementById('motd');
+            const playersListDiv = document.getElementById('players-list');
 
-    <script src="scripts.js" defer></script>
+            if (data.online) {
+                onlineDiv.innerHTML = '<span class="online">✅ Сервер онлайн</span>';
+                playersCountDiv.innerHTML = `👥 Игроков: ${data.players_online} / ${data.max_players}`;
+                motdDiv.innerHTML = `📜 MOTD: ${data.motd || 'Нет'}`;
+                if (data.players && data.players.length) {
+                    playersListDiv.innerHTML = data.players.map(p => `<div class="player">${p}</div>`).join('');
+                } else {
+                    playersListDiv.innerHTML = '<div>Никого нет :(</div>';
+                }
+            } else {
+                onlineDiv.innerHTML = '<span class="offline">❌ Сервер недоступен</span>';
+                playersCountDiv.innerHTML = '';
+                motdDiv.innerHTML = '';
+                playersListDiv.innerHTML = '<div>Не удалось получить данные</div>';
+                if (data.error) {
+                    playersListDiv.innerHTML += `<div style="color:#ff8888">Ошибка: ${data.error}</div>`;
+                }
+            }
+        }
+
+        async function refreshData() {
+            try {
+                const response = await fetch('/status');
+                const data = await response.json();
+                updateUI(data);
+            } catch (error) {
+                console.error('Ошибка запроса:', error);
+                updateUI({ online: false, error: 'Ошибка соединения с сервером' });
+            }
+        }
+
+        // Первоначальная загрузка и автообновление раз в 10 секунд
+        refreshData();
+        setInterval(refreshData, 10000);
+    </script>
 </body>
 </html>
