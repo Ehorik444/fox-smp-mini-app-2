@@ -1,1 +1,12 @@
-
+module.exports = {
+  apps: [
+    {
+      name: 'bot',
+      script: 'bot.js'
+    },
+    {
+      name: 'web',
+      script: 'app.js'
+    }
+  ]
+};
