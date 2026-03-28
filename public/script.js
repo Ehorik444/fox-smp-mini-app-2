@@ -35,6 +35,5 @@ function updateUI(data) {
     }
 }
 
-// Загрузка при старте и автообновление каждые 10 секунд
 refreshData();
 setInterval(refreshData, 10000);
