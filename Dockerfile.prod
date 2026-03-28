@@ -1,8 +1,19 @@
 FROM node:18-alpine
+
 WORKDIR /app
+
+# Копируем package.json и package-lock.json (если есть)
 COPY package*.json ./
+
+# Устанавливаем зависимости
 RUN npm install --omit=dev
+
+# Копируем весь исходный код
 COPY . .
+
+# Создаём папку для данных
 ENV DATA_DIR=/app/data
 RUN mkdir -p /app/data && chmod 777 /app/data
+
+# Запускаем бота (или можно переопределить команду)
 CMD ["node", "bot.js"]
