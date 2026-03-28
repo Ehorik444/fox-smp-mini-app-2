@@ -42,12 +42,16 @@ const server = http.createServer((req, res) => {
   if (req.url === '/api/server-status' && req.method === 'GET') {
     checkMinecraftServer(MC_SERVER_ADDRESS, MC_SERVER_PORT)
       .then((serverData) => {
+        const playerList = Array.isArray(serverData.players?.list) 
+          ? serverData.players.list.map(p => typeof p === 'object' ? p.name : p)
+          : [];
+        
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           online: true,
-          server: { address: `${MC_SERVER_ADDRESS}:${MC_SERVER_PORT}`, version: serverData.version || 'Неизвестно' },
-          players: { online: serverData.players?.online || 0, max: serverData.players?.max || 20, list: serverData.players?.list || [] },
-          motd: serverData.motd?.clean || 'Fox SMP',
+          server: { address: `${MC_SERVER_ADDRESS}:${MC_SERVER_PORT}`, version: serverData.version?.name || serverData.version || 'Неизвестно' },
+          players: { online: serverData.players?.online || 0, max: serverData.players?.max || 50, list: playerList },
+          motd: Array.isArray(serverData.motd?.clean) ? serverData.motd.clean.join(' ') : (serverData.motd?.clean || 'Fox SMP'),
           icon: serverData.icon || null
         }));
       })
@@ -112,16 +116,25 @@ server.listen(PORT, '0.0.0.0', () => {
 
 function checkMinecraftServer(address, port) {
   return new Promise((resolve, reject) => {
-    const request = https.get(`https://api.mcsrvstat.us/2/${address}:${port}`, { timeout: API_TIMEOUT }, (response) => {
+    const options = {
+      timeout: API_TIMEOUT,
+      headers: {
+        'User-Agent': 'FoxSMP-MiniApp/1.0'
+      }
+    };
+    const request = https.get(`https://api.mcsrvstat.us/3/${address}:${port}`, options, (response) => {
       let data = '';
       response.on('data', chunk => data += chunk);
       response.on('end', () => {
         try {
           const result = JSON.parse(data);
-          if (result.debug?.ping === false) reject(new Error('Сервер не отвечает'));
-          else resolve(result);
+          if (result.online === false || result.debug?.ping === false) {
+            reject(new Error('Сервер не отвечает'));
+          } else {
+            resolve(result);
+          }
         } catch (error) {
-          reject(error);
+          reject(new Error('Некорректный ответ API'));
         }
       });
     });
