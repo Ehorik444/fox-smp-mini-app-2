@@ -6,7 +6,7 @@ import os
 app = Flask(__name__)
 
 # Настройки сервера Minecraft
-MC_SERVER_HOST = "ваш-ip-или-домен"
+MC_SERVER_HOST = fox-smp.com
 MC_SERVER_PORT = 25565
 
 def get_server_status():
