@@ -1,4 +1,4 @@
-version: '3.8'
+version: '3'
 services:
   bot:
     build: .
@@ -8,10 +8,6 @@ services:
       - WEBAPP_URL=${WEBAPP_URL}
       - MC_HOST=${MC_HOST}
       - MC_PORT=${MC_PORT}
-    volumes:
-      - ./data:/app/data
-    restart: unless-stopped
-
   web:
     build: .
     command: node web.js
@@ -21,4 +17,3 @@ services:
       - MC_HOST=${MC_HOST}
       - MC_PORT=${MC_PORT}
       - PORT=3000
-    restart: unless-stopped
