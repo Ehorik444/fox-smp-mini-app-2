@@ -2,14 +2,9 @@
   "name": "fox-smp-mini-app",
   "version": "1.0.0",
   "description": "Mini App для Fox SMP сервера",
-  "main": "app.js",
+  "main": "http-wrapper.js",
   "scripts": {
-    "start": "node app.js",
-    "bot": "node bot.js",
-    "dev": "nodemon app.js"
-  },
-  "dependencies": {
-    "node-telegram-bot-api": "^0.61.0"
+    "start": "node http-wrapper.js"
   },
   "engines": {
     "node": ">=14.0.0"
