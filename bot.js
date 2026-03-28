@@ -2,7 +2,7 @@
 const TelegramBot = require('node-telegram-bot-api');
 const bot = new TelegramBot('YOUR_BOT_TOKEN', { polling: true });
 
-const WEB_APP_URL = 'https://ваше-имя.bothost.ru';
+const WEB_APP_URL = 'https://0-egorik-0.bothost.ru';
 
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
