@@ -10,6 +10,9 @@ const MC_SERVER_PORT = 20073;
 const API_TIMEOUT = 5000;
 const CACHE_MAX_AGE = 3600;
 
+// Пути для тихого игнорирования (сканеры уязвимостей)
+const IGNORED_PATHS = ['/wp-login.php', '/wp-admin/', '/administrator/', '/phpmyadmin/', '/.env', '/config.php'];
+
 const mimeTypes = Object.freeze({
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -82,6 +85,12 @@ const server = http.createServer((req, res) => {
 
   console.log(`📡 ${req.method} ${req.url}`);
 
+  // Тихое игнорирование запросов от сканеров уязвимостей
+  if (IGNORED_PATHS.some(p => req.url.startsWith(p) || req.url === p)) {
+    res.writeHead(404);
+    return res.end();
+  }
+
   fs.readFile(filePath, (err, content) => {
     if (err) {
       if (err.code === 'ENOENT') {
@@ -122,11 +131,18 @@ function checkMinecraftServer(address, port) {
         'User-Agent': 'FoxSMP-MiniApp/1.0'
       }
     };
+    // Java Edition сервер - используем стандартный эндпоинт
     const request = https.get(`https://api.mcsrvstat.us/3/${address}:${port}`, options, (response) => {
       let data = '';
       response.on('data', chunk => data += chunk);
       response.on('end', () => {
         try {
+          // Проверяем, что ответ не пустой и начинается с {
+          if (!data || !data.trim().startsWith('{')) {
+            console.error('❌ Некорректный ответ API (не JSON):', data.substring(0, 100));
+            reject(new Error('Сервер вернул некорректный ответ'));
+            return;
+          }
           const result = JSON.parse(data);
           if (result.online === false || result.debug?.ping === false) {
             reject(new Error('Сервер не отвечает'));
@@ -134,6 +150,7 @@ function checkMinecraftServer(address, port) {
             resolve(result);
           }
         } catch (error) {
+          console.error('❌ Ошибка парсинга JSON от API:', error.message, 'Data:', data.substring(0, 100));
           reject(new Error('Некорректный ответ API'));
         }
       });
