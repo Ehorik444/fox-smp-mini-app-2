@@ -1,0 +1,30 @@
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Копируем package.json и package-lock.json (если есть)
+COPY package*.json ./
+
+# Устанавливаем зависимости (npm install, т.к. package-lock.json может отсутствовать)
+RUN npm install --omit=dev
+
+# Копируем весь исходный код
+COPY . .
+
+# Создаём папку для данных и права
+ENV DATA_DIR=/app/data
+RUN mkdir -p /app/data && chmod 777 /app/data
+
+# Entrypoint для инициализации прав (опционально)
+RUN echo '#!/bin/sh' > /usr/local/bin/entrypoint.sh && \
+    echo 'set -e' >> /usr/local/bin/entrypoint.sh && \
+    echo 'mkdir -p /app/data' >> /usr/local/bin/entrypoint.sh && \
+    echo 'chmod 777 /app/data' >> /usr/local/bin/entrypoint.sh && \
+    echo 'chown -R $(id -u):$(id -g) /app/data 2>/dev/null || true' >> /usr/local/bin/entrypoint.sh && \
+    echo 'exec "$@"' >> /usr/local/bin/entrypoint.sh && \
+    chmod +x /usr/local/bin/entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+
+# По умолчанию запускаем бота (можно переопределить при запуске)
+CMD ["node", "bot.js"]
