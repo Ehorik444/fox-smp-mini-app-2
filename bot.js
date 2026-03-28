@@ -1,6 +1,6 @@
 // Пример кода для бота (bot.js)
 const TelegramBot = require('node-telegram-bot-api');
-const bot = new TelegramBot('YOUR_BOT_TOKEN', { polling: true });
+const bot = new TelegramBot('8373401152:AAHhbkJkdWSECszlTLijiub_Fhx3-0jjqIQ', { polling: true });
 
 const WEB_APP_URL = 'https://0-egorik-0.bothost.ru';
 
