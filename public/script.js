@@ -19,6 +19,56 @@ navButtons.forEach(btn => {
   });
 });
 
+// Авторизация через Microsoft
+let authWindow = null;
+const authBtn = document.getElementById('auth-btn');
+const authResultEl = document.getElementById('auth-result');
+const authStatusEl = document.getElementById('auth-status');
+
+if (authBtn) {
+  authBtn.addEventListener('click', () => {
+    if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+    
+    const width = 600;
+    const height = 700;
+    const left = window.screenX + (window.outerWidth - width) / 2;
+    const top = window.screenY + (window.outerHeight - height) / 2;
+    
+    authWindow = window.open(
+      '/api/auth/microsoft',
+      'MicrosoftAuth',
+      `width=${width},height=${height},left=${left},top=${top}`
+    );
+    
+    authStatusEl.innerHTML = '<p class="auth-text">⏳ Ожидание авторизации...</p>';
+    
+    // Обработка сообщения от окна авторизации
+    window.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'auth-result') {
+        const result = event.data.data;
+        
+        if (result.hasLicense) {
+          authStatusEl.innerHTML = '<p class="auth-text auth-success">✅ Успешно!</p>';
+          authResultEl.innerHTML = `
+            <div class="license-info">
+              <p><strong>Лицензия Minecraft найдена!</strong></p>
+              <p>User Hash: ${result.userHash || 'N/A'}</p>
+            </div>
+          `;
+          authBtn.style.display = 'none';
+        } else {
+          authStatusEl.innerHTML = '<p class="auth-text auth-error">❌ Лицензия не найдена</p>';
+          authResultEl.innerHTML = `<p>${result.message}</p>`;
+        }
+        
+        if (tg.HapticFeedback) {
+          tg.HapticFeedback.notificationOccurred(result.hasLicense ? 'success' : 'error');
+        }
+      }
+    });
+  });
+}
+
 let isRefreshing = false;
 const refreshBtn = document.getElementById('refresh-btn');
 const statusEl = document.getElementById('server-status');

@@ -291,3 +291,69 @@ body {
   border-radius: 3px;
 }
 .players-list::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.3); }
+
+/* Стили авторизации */
+.auth-card {
+  text-align: center;
+}
+
+.auth-status {
+  margin-bottom: 20px;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 12px;
+}
+
+.auth-text {
+  font-size: 15px;
+  color: var(--tg-theme-text-color);
+  margin: 0;
+}
+
+.auth-success {
+  color: #28a745;
+  font-weight: 600;
+}
+
+.auth-error {
+  color: #dc3545;
+  font-weight: 600;
+}
+
+.auth-btn {
+  width: 100%;
+  background: #0078d4;
+  color: white;
+  border: none;
+  border-radius: 12px;
+  padding: 14px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.auth-btn:active {
+  opacity: 0.85;
+  transform: scale(0.98);
+}
+
+.auth-result {
+  margin-top: 20px;
+  padding: 15px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 12px;
+}
+
+.license-info {
+  text-align: left;
+}
+
+.license-info p {
+  margin: 8px 0;
+  font-size: 14px;
+}
+
+.license-info strong {
+  color: #28a745;
+}
