@@ -20,13 +20,8 @@
             margin: 20px 0;
             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
         }
-        .online {
-            color: #4caf50;
-            font-weight: bold;
-        }
-        .offline {
-            color: #f44336;
-        }
+        .online { color: #4caf50; font-weight: bold; }
+        .offline { color: #f44336; }
         .player-list {
             display: flex;
             flex-wrap: wrap;
@@ -50,9 +45,7 @@
             margin-top: 10px;
             cursor: pointer;
         }
-        button:active {
-            background: #45a049;
-        }
+        button:active { background: #45a049; }
         .motd {
             background: #00000080;
             padding: 10px;
@@ -73,6 +66,17 @@
     </div>
 
     <script>
+        async function refreshData() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                updateUI(data);
+            } catch (error) {
+                console.error('Ошибка запроса:', error);
+                updateUI({ online: false, error: 'Ошибка соединения с сервером' });
+            }
+        }
+
         function updateUI(data) {
             const onlineDiv = document.getElementById('online-status');
             const playersCountDiv = document.getElementById('players-count');
@@ -99,18 +103,6 @@
             }
         }
 
-        async function refreshData() {
-            try {
-                const response = await fetch('/status');
-                const data = await response.json();
-                updateUI(data);
-            } catch (error) {
-                console.error('Ошибка запроса:', error);
-                updateUI({ online: false, error: 'Ошибка соединения с сервером' });
-            }
-        }
-
-        // Первоначальная загрузка и автообновление раз в 10 секунд
         refreshData();
         setInterval(refreshData, 10000);
     </script>
