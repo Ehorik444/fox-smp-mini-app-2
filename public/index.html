@@ -2,49 +2,103 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Fox SMP</title>
+  
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <style>
-    body {
-      background: var(--tg-theme-bg-color, #ffffff);
-      color: var(--tg-theme-text-color, #000000);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      padding: 20px;
-      text-align: center;
-    }
-    .header {
-      margin-bottom: 30px;
-    }
-    .header h1 {
-      font-size: 32px;
-      color: #ff6b00;
-    }
-    .status {
-      padding: 12px 24px;
-      border-radius: 20px;
-      background: #28a745;
-      color: white;
-      display: inline-block;
-      font-weight: bold;
-      margin: 20px 0;
-    }
-  </style>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="header">
-    <h1>🦊 Fox SMP</h1>
-    <p>Ваш сервер выживания</p>
-  </div>
-  
-  <div class="status">ОНЛАЙН</div>
-  <p>Присоединяйся к нам!</p>
+  <!-- Навигация -->
+  <nav class="nav">
+    <button class="nav-btn active" data-page="status">📊 Статус</button>
+    <button class="nav-btn" data-page="report">📝 Жалоба</button>
+  </nav>
 
-  <script>
-    const tg = window.Telegram.WebApp;
-    tg.expand();
-    tg.ready();
-    console.log('✅ Mini App загружена');
-  </script>
+  <!-- Страница: Статус сервера -->
+  <div id="page-status" class="page active">
+    <div class="header">
+      <h1>🦊 Fox SMP</h1>
+      <p>Сервер выживания</p>
+    </div>
+
+    <div class="card">
+      <div class="status-section">
+        <h2>Статус сервера</h2>
+        <div id="server-status" class="status offline">
+          <span class="status-dot"></span>
+          <span class="status-text">Загрузка...</span>
+        </div>
+      </div>
+
+      <div class="players-section">
+        <h3>Игроки онлайн</h3>
+        <div id="players-count" class="players-count">— / —</div>
+        <div id="players-list" class="players-list">
+          <p class="empty-text">Сервер выключен</p>
+        </div>
+      </div>
+
+      <button id="refresh-btn" class="button refresh-btn">
+        <span>🔄 Обновить</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Страница: Форма жалобы -->
+  <div id="page-report" class="page">
+    <div class="header">
+      <h1>📝 Отправить жалобу</h1>
+      <p>Расскажите о проблеме</p>
+    </div>
+
+    <div class="card">
+      <form id="report-form">
+        <div class="form-group">
+          <label for="player-name">Ник игрока *</label>
+          <input 
+            type="text" 
+            id="player-name" 
+            placeholder="Введите ник игрока" 
+            required
+            maxlength="16"
+          >
+        </div>
+
+        <div class="form-group">
+          <label for="reason">Причина *</label>
+          <select id="reason" required>
+            <option value="">Выберите причину</option>
+            <option value="cheat">Читы/читерство</option>
+            <option value="grief">Гриферство</option>
+            <option value="toxic">Токсичное поведение</option>
+            <option value="spam">Спам/реклама</option>
+            <option value="other">Другое</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="description">Описание *</label>
+          <textarea 
+            id="description" 
+            placeholder="Опишите ситуацию подробно. Укажите время, место и свидетелей." 
+            required
+            rows="4"
+            maxlength="500"
+          ></textarea>
+          <div class="char-counter"><span id="char-count">0</span>/500</div>
+        </div>
+
+        <div class="form-footer">
+          <button type="submit" class="button submit-btn">
+            <span>📤 Отправить жалобу</span>
+          </button>
+          <p class="form-note">* Поля обязательны для заполнения</p>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
 </body>
 </html>
