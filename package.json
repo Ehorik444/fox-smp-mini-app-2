@@ -2,9 +2,9 @@
   "name": "fox-smp-mini-app",
   "version": "1.0.0",
   "description": "Mini App для Fox SMP сервера",
-  "main": "app.js", /* <= Можете изменить на app.js, хотя start важнее */
+  "main": "app.js", // <= Указываем ваш основной файл
   "scripts": {
-    "start": "node app.js", /* <= ИЗМЕНИТЬ НА ЭТО */
+    "start": "node app.js", // <= ИЗМЕНИТЬ НА ЭТО - это команда, которую BotHost будет запускать
     "start:bot": "node bot.js"
   },
   "engines": {
@@ -15,6 +15,6 @@
     "msal": "^1.4.18",
     "node-telegram-bot-api": "^0.61.0",
     "soap": "^1.8.0",
-    "minecraft-protocol": "^1.43.0"
+    "minecraft-protocol": "^1.43.0" // <= Убедитесь, что это здесь
   }
 }
