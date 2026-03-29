@@ -2,9 +2,9 @@
   "name": "fox-smp-mini-app",
   "version": "1.0.0",
   "description": "Mini App для Fox SMP сервера",
-  "main": "http-wrapper.js",
+  "main": "app.js", /* <= Можете изменить на app.js, хотя start важнее */
   "scripts": {
-    "start": "node http-wrapper.js",
+    "start": "node app.js", /* <= ИЗМЕНИТЬ НА ЭТО */
     "start:bot": "node bot.js"
   },
   "engines": {
