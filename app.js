@@ -1,8 +1,11 @@
 const http = require('http');
-const https = require('https');
+const https = require('https'); // Оставлен для других целей (например, OAuth)
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+// ========== ДОБАВЛЕНО: Импорт библиотеки для подключения к серверу Minecraft ==========
+const mc = require('minecraft-protocol');
+// ===============================================================================
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -44,25 +47,35 @@ const corsHeaders = {
 
 const server = http.createServer((req, res) => {
   Object.entries(corsHeaders).forEach(([key, value]) => res.setHeader(key, value));
-  
-  if (req.method === 'OPTIONS') {
+    if (req.method === 'OPTIONS') {
     res.writeHead(200);
     return res.end();
   }
   
+  // ========== ОБНОВЛЕНО: API для статуса сервера ==========
   if (req.url === '/api/server-status' && req.method === 'GET') {
-    checkMinecraftServer(MC_SERVER_ADDRESS, MC_SERVER_PORT)
+    // Вызываем НОВУЮ функцию для получения реального статуса
+    getRealServerStatus()
       .then((serverData) => {
-        const playerList = Array.isArray(serverData.players?.list) 
+        // Формируем ответ в нужном формате
+        const playerList = Array.isArray?.list) 
           ? serverData.players.list.map(p => typeof p === 'object' ? p.name : p)
           : [];
         
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           online: true,
-          server: { address: `${MC_SERVER_ADDRESS}:${MC_SERVER_PORT}`, version: serverData.version?.name || serverData.version || 'Неизвестно' },
-          players: { online: serverData.players?.online || 0, max: serverData.players?.max || 50, list: playerList },
-          motd: Array.isArray(serverData.motd?.clean) ? serverData.motd.clean.join(' ') : (serverData.motd?.clean || 'Fox SMP'),
+          server: { 
+            address: `${MC_SERVER_ADDRESS}:${MC_SERVER_PORT}`, 
+            version: serverData.version?.name || serverData.version || 'Неизвестно',
+            protocol: serverData.protocol // Добавлен протокол, если нужен
+          },
+          players: { 
+            online: serverData.players?.online || 0, 
+            max: serverData.players?.max || 20, // Можно изменить max по умолчанию
+            list: playerList 
+          },
+          motd: serverData.motd || 'Fox SMP', // Используем MOTD с сервера
           icon: serverData.icon || null
         }));
       })
@@ -76,14 +89,14 @@ const server = http.createServer((req, res) => {
           players: { online: 0, max: 20, list: [] }
         }));
       });
-    return;
+    return; // ВАЖНО: выходим после обработки API
   }
-  
+  // ======================================================
+
   // Авторизация через Microsoft - начало OAuth потока
   if (req.url === '/api/auth/microsoft' && req.method === 'GET') {
     const state = crypto.randomBytes(32).toString('hex');
-    authSessions.set(state, { timestamp: Date.now() });
-    
+    authSessions.set(state, { timestamp: Date.now() });    
     const authUrl = `https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?client_id=${MICROSOFT_CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(MICROSOFT_REDIRECT_URI)}&scope=XboxLive.signin%20offline_access&state=${state}`;
     
     res.writeHead(302, { 'Location': authUrl });
@@ -132,8 +145,7 @@ const server = http.createServer((req, res) => {
                   window.close();
                 } else {
                   document.body.innerHTML = '<h1>' + (result.hasLicense ? '✅ Успешно!' : '❌ Ошибка') + '</h1><p>' + result.message + '</p>';
-                }
-              };
+                }              };
             </script>
           </head>
           <body>
@@ -182,8 +194,7 @@ const server = http.createServer((req, res) => {
             res.writeHead(e ? 500 : 200, { 'Content-Type': 'text/html' });
             res.end(e ? 'Ошибка сервера' : c);
           });
-        } else {
-          res.writeHead(404);
+        } else {          res.writeHead(404);
           res.end('404 — Страница не найдена');
         }
       } else {
@@ -204,45 +215,101 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`🎮 Сервер: ${MC_SERVER_ADDRESS}:${MC_SERVER_PORT}`);
 });
 
-function checkMinecraftServer(address, port) {
+// ========== НОВАЯ ФУНКЦИЯ: Получение реального статуса сервера ==========
+/**
+ * Функция подключается к серверу Minecraft и получает реальные данные
+ * @returns {Promise<Object>} - Объект с информацией о сервере
+ */
+function getRealServerStatus() {
   return new Promise((resolve, reject) => {
-    const options = {
-      timeout: API_TIMEOUT,
-      headers: {
-        'User-Agent': 'FoxSMP-MiniApp/1.0'
-      }
-    };
-    // Java Edition сервер - используем стандартный эндпоинт
-    const request = https.get(`https://api.mcsrvstat.us/3/${address}:${port}`, options, (response) => {
-      let data = '';
-      response.on('data', chunk => data += chunk);
-      response.on('end', () => {
-        try {
-          // Проверяем, что ответ не пустой и начинается с {
-          if (!data || !data.trim().startsWith('{')) {
-            console.error('❌ Некорректный ответ API (не JSON):', data.substring(0, 100));
-            reject(new Error('Сервер вернул некорректный ответ'));
-            return;
-          }
-          const result = JSON.parse(data);
-          if (result.online === false || result.debug?.ping === false) {
-            reject(new Error('Сервер не отвечает'));
-          } else {
-            resolve(result);
-          }
-        } catch (error) {
-          console.error('❌ Ошибка парсинга JSON от API:', error.message, 'Data:', data.substring(0, 100));
-          reject(new Error('Некорректный ответ API'));
-        }
-      });
+    console.log(`🔗 Подключаюсь к ${MC_SERVER_ADDRESS}:${MC_SERVER_PORT}...`);
+    
+    // Создаём клиент для подключения к серверу
+    const client = mc.createClient({
+      host: MC_SERVER_ADDRESS,
+      port: MC_SERVER_PORT,
+      username: 'status_checker_bot', // Имя пользователя для подключения (не важно для статуса)
+      auth: 'offline', // Сервер не требует аутентификации Mojang
+      version: false // Автоматическое определение версии
     });
-    request.on('error', reject);
-    request.on('timeout', () => {
-      request.destroy();
-      reject(new Error('Таймаут запроса'));
+
+    // Устанавливаем таймаут подключения (5 секунд)
+    const timeout = setTimeout(() => {
+      console.log('⏰ Таймаут подключения');
+      client.end(); // Закрываем соединение
+      reject(new Error('Таймаут подключения к серверу'));
+    }, API_TIMEOUT);
+
+    // Обработчик получения информации о сервере
+    client.on('server_info', (packet) => {
+      console.log('📋 Получена информация от сервера');
+      // Очищаем таймаут, так как подключение успешно      clearTimeout(timeout);
+
+      try {
+        // Парсим JSON-ответ от сервера
+        const serverInfo = JSON.parse(packet.response);
+
+        // Извлекаем нужные данные
+        const versionName = serverInfo.version?.name || 'Неизвестно';
+        const protocolVersion = serverInfo.version?.protocol || 0;
+        const maxPlayers = serverInfo.players?.max || 20; // Берём max с сервера, или 20 по умолчанию
+        const onlinePlayers = serverInfo.players?.online || 0;
+        const playerSample = serverInfo.players?. []; // Список игроков (если доступен)
+        const motd = serverInfo.description?.text || serverInfo.description || 'Fox SMP';
+
+        // Извлекаем имена игроков из списка
+        const playerNameList = playerSample.map(player => player.name);
+
+        // Формируем объект с данными
+        const statusData = {
+          online: true, // Сервер доступен
+          server: {
+            address: `${MC_SERVER_ADDRESS}:${MC_SERVER_PORT}`,
+            version: versionName,
+            protocol: protocolVersion
+          },
+          players: {
+            online: onlinePlayers,
+            max: maxPlayers,
+            list: playerNameList
+          },
+          motd: motd
+          // favicon можно добавить позже, если нужно
+        };
+
+        console.log(`🟢 Сервер онлайн. Игроков: ${onlinePlayers}/${maxPlayers}`);
+        // Закрываем соединение
+        client.end();
+        // Возвращаем данные
+        resolve(statusData);
+
+      } catch (parseError) {
+        console.error('❌ Ошибка парсинга данных от сервера:', parseError);
+        client.end();
+        reject(parseError);
+      }
+    });
+
+    // Обработчик ошибок подключения
+    client.on('error', (err) => {
+      console.error('❌ Ошибка подключения к серверу:', err.message);      clearTimeout(timeout);
+      client.end();
+      reject(err);
+    });
+
+    // Обработчик отключения (например, если сервер сам отключил клиента)
+    client.on('end', () => {
+      console.log('🔌 Клиент отключился от сервера');
+      // Этот обработчик нужен, чтобы избежать возможных утечек памяти,
+      // но основная логика уже в 'server_info' и 'error'.
     });
   });
 }
+// ========================================================================
+
+// ========== УДАЛЕНА: Старая функция checkMinecraftServer (заглушка) ==========
+// Функция checkMinecraftServer больше не нужна, так как мы используем прямое подключение.
+// ===========================================================================
 
 // Обмен кода авторизации на токен Microsoft
 function exchangeMicrosoftToken(code) {
@@ -274,8 +341,7 @@ function exchangeMicrosoftToken(code) {
           if (result.error) {
             reject(new Error(result.error_description || result.error));
           } else {
-            resolve(result);
-          }
+            resolve(result);          }
         } catch (e) {
           reject(new Error('Ошибка парсинга токена Microsoft'));
         }
@@ -324,8 +390,7 @@ function getXBLToken(msAccessToken) {
           if (result.XErr) {
             reject(new Error(`XBL ошибка ${result.XErr}: ${result.Message || 'Неизвестная ошибка'}`));
           } else {
-            resolve(result);
-          }
+            resolve(result);          }
         } catch (e) {
           reject(new Error('Ошибка парсинга XBL токена'));
         }
@@ -374,8 +439,7 @@ function getXSTSToken(xblToken) {
             reject(new Error(`XSTS ошибка ${result.XErr}: ${result.Message || 'Неизвестная ошибка'}`));
           } else {
             resolve(result);
-          }
-        } catch (e) {
+          }        } catch (e) {
           reject(new Error('Ошибка парсинга XSTS токена'));
         }
       });
@@ -424,7 +488,6 @@ function checkMinecraftLicense(xstsData) {
       });
     });
     
-    req.on('error', reject);
-    req.end();
+    req.on('error', reject);    req.end();
   });
 }
