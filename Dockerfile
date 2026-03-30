@@ -37,6 +37,5 @@ COPY . .
 # Открываем порт
 EXPOSE 3000
 
-# Создаем простой HTTP сервер для health checks
-RUN echo 'const http = require("http"); const server = http.createServer((req, res) => { res.writeHead(200, {"Content-Type": "text/plain"}); res.end("Bot is running"); }); server.listen(3000, "0.0.0.0", () => console.log("HTTP server started on port 3000"));' > /app/http-wrapper.js
-CMD ["node", "http-wrapper.js"]
+# Запускаем основное приложение
+CMD ["node", "app.js"]
