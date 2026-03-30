@@ -58,7 +58,7 @@ const server = http.createServer((req, res) => {
     getRealServerStatus()
       .then((serverData) => {
         // Формируем ответ в нужном формате
-        const playerList = Array.isArray?.list) 
+        const playerList = Array.isArray(serverData.players?.list)
           ? serverData.players.list.map(p => typeof p === 'object' ? p.name : p)
           : [];
         
@@ -243,7 +243,8 @@ function getRealServerStatus() {
     // Обработчик получения информации о сервере
     client.on('server_info', (packet) => {
       console.log('📋 Получена информация от сервера');
-      // Очищаем таймаут, так как подключение успешно      clearTimeout(timeout);
+      // Очищаем таймаут, так как подключение успешно
+      clearTimeout(timeout);
 
       try {
         // Парсим JSON-ответ от сервера
@@ -254,7 +255,7 @@ function getRealServerStatus() {
         const protocolVersion = serverInfo.version?.protocol || 0;
         const maxPlayers = serverInfo.players?.max || 20; // Берём max с сервера, или 20 по умолчанию
         const onlinePlayers = serverInfo.players?.online || 0;
-        const playerSample = serverInfo.players?. []; // Список игроков (если доступен)
+        const playerSample = serverInfo.players?.sample || []; // Список игроков (если доступен)
         const motd = serverInfo.description?.text || serverInfo.description || 'Fox SMP';
 
         // Извлекаем имена игроков из списка
@@ -292,7 +293,8 @@ function getRealServerStatus() {
 
     // Обработчик ошибок подключения
     client.on('error', (err) => {
-      console.error('❌ Ошибка подключения к серверу:', err.message);      clearTimeout(timeout);
+      console.error('❌ Ошибка подключения к серверу:', err.message);
+      clearTimeout(timeout);
       client.end();
       reject(err);
     });
@@ -488,6 +490,7 @@ function checkMinecraftLicense(xstsData) {
       });
     });
     
-    req.on('error', reject);    req.end();
+    req.on('error', reject);
+    req.end();
   });
 }
