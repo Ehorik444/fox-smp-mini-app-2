@@ -1,107 +1,49 @@
+```
 # Docker-related
-.dockerenv
-Dockerfile.bak
-*.dockerignore
+.dockerignore
 
-# Temporary files
-*.tmp
-*.temp
-*.bak
-*~
-
-# Logs
+# Logs and temporary files
 *.log
+*.tmp
 
-# Environment variables
+# Environment files
 .env
 .env.local
 *.env.*
 
-# Dependencies
-node_modules/
-venv/
-.venv/
-__pycache__/
-*.egg-info/
-.Python
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Build artifacts
-build/
-dist/
-*.pyc
-*.pyo
-*.pyd
-*.so
-*.dylib
-*.dll
-*.exe
-*.o
-*.a
-*.obj
-*.out
-
-# IDE and editor files
+# Editor/IDE files
 .vscode/
 .idea/
 *.swp
 *.swo
-.DS_Store
-Thumbs.db
 
-# Testing and coverage
-.coverage
-coverage/
-htmlcov/
-.nyc_output/
-istanbul/
+# Dependencies and build artifacts
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.class
+*.o
+*.obj
+*.so
+*.dll
+*.exe
+*.a
+*.out
+dist/
+build/
+target/
+.venv/
+venv/
+.env
+.env.local
+*.env.*
 .mypy_cache/
 .pytest_cache/
-.hypothesis/
-
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-*.crdownload
-
-# Archives
-*.zip
-*.tar.gz
-*.tar.bz2
-*.tar.xz
-*.gz
-*.rar
-*.7z
-*.bz2
-*.xz
-*.tgz
-*.tar
-*.deb
-*.rpm
-
-# Compiled files
-*.class
-*.jar
-*.war
-*.ear
-*.iml
-*.ipr
-*.iws
-*.orig
-
-# System files
-*.tmp
-*.temp
-*~
+coverage/
+htmlcov/
+.coverage
 .DS_Store
 Thumbs.db
-
-# Configuration backup
-config.bak
-settings.bak
+```
