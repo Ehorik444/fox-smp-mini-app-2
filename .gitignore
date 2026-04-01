@@ -19,7 +19,7 @@ venv/
 .venv/
 .env
 .env.local
-*.env.*
+.env.*
 
 # Logs and temp files
 *.log
@@ -27,7 +27,7 @@ venv/
 *.swp
 *.swo
 
-# Editors
+# Editors and IDEs
 .vscode/
 .idea/
 *.swp
@@ -37,16 +37,14 @@ venv/
 .DS_Store
 Thumbs.db
 
-# Coverage
+# Coverage and testing
 coverage/
 htmlcov/
 .coverage
-
-# Python specific
 .mypy_cache/
 .pytest_cache/
 
-# Java/Gradle
+# Gradle
 .gradle/
 
 # Compressed files

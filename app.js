@@ -179,8 +179,8 @@ const server = http.createServer((req, res) => {
     return;
   }
   
-  const cleanUrl = req.url.startsWith('/') ? req.url.substring(1) : req.url;
-  const filePath = path.join(PUBLIC_DIR, cleanUrl);
+  // Исправленная обработка путей: оставляем путь как есть
+  const filePath = path.join(PUBLIC_DIR, req.url);
 
   if (!filePath.startsWith(PUBLIC_DIR)) {
     console.log('🚫 Запрещённый путь:', req.url);
