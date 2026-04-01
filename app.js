@@ -164,8 +164,23 @@ const server = http.createServer((req, res) => {
     return;
   }
   
-  const cleanUrl = req.url === '/' ? '' : (req.url.startsWith('/') ? req.url.substring(1) : req.url);
-  const filePath = cleanUrl ? path.join(PUBLIC_DIR, cleanUrl) : path.join(PUBLIC_DIR, 'index.html');
+  // Обработка статических файлов из папки public
+  if (req.url === '/' || req.url === '/index.html') {
+    const indexPath = path.join(PUBLIC_DIR, 'index.html');
+    fs.readFile(indexPath, (err, content) => {
+      if (err) {
+        console.error('❌ Ошибка чтения index.html:', err);
+        res.writeHead(500);
+        return res.end('500 — Ошибка сервера');
+      }
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(content);
+    });
+    return;
+  }
+  
+  const cleanUrl = req.url.startsWith('/') ? req.url.substring(1) : req.url;
+  const filePath = path.join(PUBLIC_DIR, cleanUrl);
 
   if (!filePath.startsWith(PUBLIC_DIR)) {
     console.log('🚫 Запрещённый путь:', req.url);
