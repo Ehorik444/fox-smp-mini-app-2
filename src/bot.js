@@ -108,7 +108,7 @@ bot.on('callback_query', (query) => {
         }
 
         const appText = `
-Новая заявка на сервер Fox SMP:
+Новая заявка:
 - От кого: ${state.username}
 - Возраст: ${state.age}
 - Пол: ${state.gender}
