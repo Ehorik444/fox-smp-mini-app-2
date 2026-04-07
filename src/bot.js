@@ -4,6 +4,9 @@ require('dotenv').config();
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
+// ID чата (форума)
+const forumChatId = '-1003255144076';
+
 // Хранение состояния пользователей
 const userStates = {};
 
@@ -63,8 +66,8 @@ bot.on('message', (msg) => {
 - О себе: ${state.about}
             `.trim();
 
-            // Отправляем заявку администратору
-            bot.sendMessage('-1003255144076', applicationText);
+            // Отправляем заявку в форум
+            bot.sendMessage(forumChatId, applicationText);
 
             // Уведомляем пользователя
             bot.sendMessage(chatId, 'Спасибо за заявку! Она отправлена на рассмотрение.', { reply_markup: { remove_keyboard: true } });
