@@ -1,7 +1,7 @@
 const TelegramBot = require('node-telegram-bot-api');
 require('dotenv').config();
 
-const token = process.env.TELEGRAM_BOT_TOKEN; // ← Вот так правильно
+const token = process.env.TELEGRAM_BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
 // Хранение состояния пользователей
@@ -62,8 +62,14 @@ bot.on('message', (msg) => {
 - Ник: ${state.nickname}
 - О себе: ${state.about}
             `.trim();
-            bot.sendMessage(chatId, 'Спасибо за заявку!', { reply_markup: { remove_keyboard: true } });
-            bot.sendMessage(chatId, applicationText);
+
+            // Отправляем заявку администратору
+            bot.sendMessage('-1003255144076', applicationText);
+
+            // Уведомляем пользователя
+            bot.sendMessage(chatId, 'Спасибо за заявку! Она отправлена на рассмотрение.', { reply_markup: { remove_keyboard: true } });
+
+            // Очищаем состояние
             delete userStates[chatId];
             break;
     }
