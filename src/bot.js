@@ -1,7 +1,7 @@
 const TelegramBot = require('node-telegram-bot-api');
 require('dotenv').config();
 
-const token = process.env.TELEGRAM_BOT_TOKEN; // Не забудьте указать токен в .env
+const token = process.env.8373401152:AAHxcG5u8Xgj6yweOkdi72LeboFhFltBlL0; // Не забудьте указать токен в .env
 const bot = new TelegramBot(token, { polling: true });
 
 // Хранение состояния пользователей (можно заменить на базу данных)
