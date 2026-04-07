@@ -9,22 +9,18 @@ if (!token) {
 
 const bot = new TelegramBot(token, { polling: true });
 
-// ID форума и темы
 const FORUM_CHAT_ID = '-1003255144076';
 const THREAD_ID = 3567;
 
-// Хранение состояния пользователей
 const userStates = {};
 
 bot.onText(/\/start/, (msg) => {
-    const chatId = msg.chat.id;
-    bot.sendMessage(chatId, 'Привет! Напиши /apply, чтобы подать заявку на сервер.');
+    bot.sendMessage(msg.chat.id, 'Привет! Напиши /apply, чтобы подать заявку на сервер.');
 });
 
 bot.onText(/\/apply/, (msg) => {
-    const chatId = msg.chat.id;
-    userStates[chatId] = { step: 'age' };
-    bot.sendMessage(chatId, 'Введите ваш возраст:');
+    userStates[msg.chat.id] = { step: 'age' };
+    bot.sendMessage(msg.chat.id, 'Введите ваш возраст:');
 });
 
 bot.on('message', (msg) => {
@@ -42,7 +38,7 @@ bot.on('message', (msg) => {
                 state.age = text;
                 state.step = 'gender';
                 bot.sendMessage(chatId, 'Введите ваш пол (мужской/женский/другое):');
-            } else {
+            } {
                 bot.sendMessage(chatId, 'Пожалуйста, введите корректный возраст (число).');
             }
             break;
@@ -66,17 +62,16 @@ bot.on('message', (msg) => {
         case 'about':
             state.about = text;
 
-            // 🎯 Только юзернейм или имя — без ID
+            // 🔥 ТОЛЬКО юзернейм или имя — без ID!
             const username = from.username ? `@${from.username}` : from.first_name;
 
             const applicationText = `
-Новая заявка на сервер Fox SMP:
+Новая заявка:
 - От кого: ${username}
 - Возраст: ${state.age}
 - Пол: ${state.gender}
 - Ник: ${state.nickname}
 - О себе: ${state.about}
-- Подано через бота
             `.trim();
 
             bot.sendMessage(
@@ -87,9 +82,8 @@ bot.on('message', (msg) => {
             .then(() => {
                 bot.sendMessage(chatId, '✅ Заявка отправлена в тему "Заявки"!', { reply_markup: { remove_keyboard: true } });
             })
-            .catch(err => {
-                console.error('Ошибка отправки:', err.message);
-                bot.sendMessage(chatId, '❌ Ошибка отправки. Попробуйте ещё раз.');
+            .catch(() => {
+                bot.sendMessage(chatId, '❌ Ошибка. Попробуйте ещё раз.');
             });
 
             delete userStates[chatId];
@@ -97,4 +91,4 @@ bot.on('message', (msg) => {
     }
 });
 
-console.log('🤖 Бот запущен. Ожидание команды /apply...');
+console.log('🤖 Бот запущен.');
