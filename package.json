@@ -8,7 +8,8 @@
   },
   "dependencies": {
     "node-telegram-bot-api": "^0.65.1",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "minecraft-server-util": "^5.4.4"
   },
   "keywords": [],
   "author": "",
