@@ -12,103 +12,118 @@ const bot = new TelegramBot(token, { polling: true });
 const FORUM_CHAT_ID = '-1003255144076';
 const THREAD_ID = 3567;
 
-// ID админов, которым будут приходить уведомления
 const ADMIN_CHAT_IDS = [5372937661, 2121418969];
-
-// Список админов, которые могут одобрять/отклонять
 const ADMIN_IDS = new Set([...ADMIN_CHAT_IDS]);
 
 const userStates = {};
 
+// Хранение отзывов
+let reviews = [
+    { user: '@player1', rating: 5, comment: 'Отличный сервер!' },
+    { user: '@player2', rating: 4, comment: 'Хорошие админы.' }
+];
+
+// Команда /start
 bot.onText(/\/start/, (msg) => {
-    bot.sendMessage(msg.chat.id, 'Привет! Напиши /apply, чтобы подать заявку на сервер.');
+    bot.sendMessage(msg.chat.id, `
+Привет! Я бот сервера Fox SMP.
+Доступные команды:
+- /status — статус сервера
+- /vote — оценить сервер
+- /reviews — отзывы
+- /apply — подать заявку на сервер
+    `.trim());
 });
 
-bot.onText(/\/apply/, (msg) => {
-    userStates[msg.chat.id] = { step: 'age' };
-    bot.sendMessage(msg.chat.id, 'Введите ваш возраст:');
+// Команда /status
+bot.onText(/\/status/, (msg) => {
+    // В реальности можно подключить API сервера, RCON, etc.
+    // Пока — фиктивные данные
+    const serverStatus = {
+        online: true,
+        playersOnline: 15,
+        maxPlayers: 50,
+        tps: 19.98,
+        ping: '120ms',
+        uptime: '24 дня'
+    };
+    const statusText = `
+📊 Статус сервера Fox SMP:
+- Статус: ${serverStatus.online ? '🟢 Онлайн' : '🔴 Оффлайн'}
+- Игроков онлайн: ${serverStatus.playersOnline}/${serverStatus.maxPlayers}
+- TPS: ${serverStatus.tps.toFixed(2)}
+- Пинг: ${serverStatus.ping}
+- Аптайм: ${serverStatus.uptime}
+    `.trim();
+
+    bot.sendMessage(msg.chat.id, statusText);
 });
 
-bot.on('message', (msg) => {
-    const chatId = msg.chat.id;
-    const text = msg.text;
-    const from = msg.from;
+// Команда /vote
+bot.onText(/\/vote/, (msg) => {
+    const keyboard = {
+        inline_keyboard: [
+            [
+                { text: '⭐', callback_ 'vote_1' },
+                { text: '⭐⭐', callback_ 'vote_2' },
+                { text: '⭐⭐⭐', callback_ 'vote_3' },
+                { text: '⭐⭐⭐⭐', callback_ 'vote_4' },
+                { text: '⭐⭐⭐⭐⭐', callback_ 'vote_5' }
+            ]
+        ]
+    };
 
-    if (!userStates[chatId]) return;
-    const state = userStates[chatId];
-
-    switch (state.step) {
-        case 'age':
-            if (/^\d+$/.test(text) && parseInt(text) > 0) {
-                state.age = text;
-                state.step = 'gender';
-                bot.sendMessage(chatId, 'Введите ваш пол (мужской/женский/другое):');
-            } else {
-                bot.sendMessage(chatId, 'Пожалуйста, введите корректный возраст (число).');
-            }
-            break;
-        case 'gender':
-            if (['мужской', 'женский', 'другое'].includes(text.toLowerCase())) {
-                state.gender = text;
-                state.step = 'nickname';
-                bot.sendMessage(chatId, 'Введите ваш никнейм в Minecraft:');
-            } else {
-                bot.sendMessage(chatId, 'Пожалуйста, введите "мужской", "женский" или "другое".');
-            }
-            break;
-
-        case 'nickname':
-            state.nickname = text;
-            state.step = 'about';
-            bot.sendMessage(chatId, 'Расскажите немного о себе:');
-            break;
-
-        case 'about':
-            state.about = text;
-            state.username = from.username ? `@${from.username}` : from.first_name;
-
-            // Показываем предварительный просмотр
-            const preview = `
-Вот ваша заявка:
-- От кого: ${state.username}
-- Возраст: ${state.age}
-- Пол: ${state.gender}
-- Ник: ${state.nickname}
-- О себе: ${state.about}
-
-Всё верно? Нажмите ✅ Да или ❌ Изменить.
-            `.trim();
-
-            const keyboard = {
-                inline_keyboard: [
-                    [
-                        { text: '✅ Да', callback_data: 'confirm_submit' },      // ✅ ПРАВИЛЬНО
-                        { text: '❌ Изменить', callback_data: 'restart_apply' } // ✅ ПРАВИЛЬНО
-                    ]
-                ]
-            };
-
-            bot.sendMessage(chatId, preview, { reply_markup: keyboard });
-            break;
-    }
+    bot.sendMessage(msg.chat.id, '⭐ Поставьте оценку серверу Fox SMP:', { reply_markup: keyboard });
 });
 
-// Обработка кнопок подтверждения
+// Команда /reviews
+bot.onText(/\/reviews/, (msg) => {
+    let reviewList = '📖 Отзывы о сервере:\n\n';
+    reviews.forEach((rev, i) => {
+        reviewList += `${i + 1}. ${rev.user} — ${rev.rating}⭐\n"${rev.comment}"\n\n`;
+    });
+
+    const keyboard = {
+        inline_keyboard: [
+            [{ text: '📝 Оставить отзыв', callback_ 'leave_review' }]
+        ]
+    };
+
+    bot.sendMessage(msg.chat.id, reviewList || 'Пока нет отзывов.', { reply_markup: keyboard });
+});
+
+// Обработка голосования
 bot.on('callback_query', (query) => {
     const data = query.data;
-    const chatId = query.message.chat.id;    const userId = query.from.id;
+    const chatId = query.message.chat.id;
+    const userId = query.from.id;    const username = query.from.username ? `@${query.from.username}` : query.from.first_name;
 
-    // Подтверждение отправки
+    if (data.startsWith('vote_')) {
+        const rating = parseInt(data.split('_')[1]);
+        reviews.push({ user: username, rating, comment: 'Без комментария' });
+        bot.answerCallbackQuery(query.id, { text: `Спасибо за оценку: ${rating}⭐`, show_alert: true });
+        bot.editMessageText(`✅ Вы поставили ${rating}⭐`, {
+            chat_id: chatId,
+            message_id: query.message.message_id
+        });
+    }
+
+    if (data === 'leave_review') {
+        userStates[userId] = { step: 'review_rating' };
+        bot.sendMessage(chatId, 'Введите оценку (1-5):');
+        bot.answerCallbackQuery(query.id);
+    }
+
+    // Обработка кнопок заявки — как раньше
     if (data === 'confirm_submit') {
         const state = userStates[chatId];
-
         if (!state) {
             bot.answerCallbackQuery(query.id, { text: '❌ Ошибка: состояние утеряно.', show_alert: true });
             return;
         }
 
         const appText = `
-Новая заявка:
+Новая заявка на сервер Fox SMP:
 - От кого: ${state.username}
 - Возраст: ${state.age}
 - Пол: ${state.gender}
@@ -116,36 +131,31 @@ bot.on('callback_query', (query) => {
 - О себе: ${state.about}
         `.trim();
 
-        // Отправляем заявку в тему
         bot.sendMessage(FORUM_CHAT_ID, appText, { message_thread_id: THREAD_ID })
             .then(sentMsg => {
                 const msgId = sentMsg.message_id;
-
-                // Добавляем кнопки одобрения/отклонения
                 const approvalButtons = {
                     inline_keyboard: [
                         [
-                            { text: '✅ Принять', callback_data: `approve_${chatId}` },      // ✅
-                            { text: '❌ Отклонить', callback_data: `reject_${chatId}` }     // ✅
+                            { text: '✅ Принять', callback_ `approve_${chatId}` },
+                            { text: '❌ Отклонить', callback_ `reject_${chatId}` }
                         ]
                     ]
                 };
 
                 bot.editMessageReplyMarkup(approvalButtons, {
                     chat_id: FORUM_CHAT_ID,
-                    message_id: msgId
-                }).catch(() => {});
+                    message_id: msgId                }).catch(() => {});
 
-                // Уведомляем ВСЕХ админов
                 ADMIN_CHAT_IDS.forEach(adminId => {
                     bot.sendMessage(adminId, `🔔 Новая заявка от ${state.username} (ID: ${chatId})`, {
                         reply_to_message_id: msgId,
                         message_thread_id: THREAD_ID
-                    }).catch(() => {}); // игнорируем, если админ заблокировал бота
+                    }).catch(() => {});
                 });
 
-                // Уведомляем пользователя
-                bot.editMessageText('✅ Заявка отправлена. Админы скоро её рассмотрят.', {                    chat_id: chatId,
+                bot.editMessageText('✅ Заявка отправлена. Админы скоро её рассмотрят.', {
+                    chat_id: chatId,
                     message_id: query.message.message_id
                 });
             })
@@ -158,7 +168,6 @@ bot.on('callback_query', (query) => {
         return;
     }
 
-    // Пользователь хочет повторить
     if (data === 'restart_apply') {
         userStates[chatId] = { step: 'age' };
         bot.editMessageText('Введите возраст:', {
@@ -168,7 +177,6 @@ bot.on('callback_query', (query) => {
         return;
     }
 
-    // Обработка кнопок одобрения/отклонения
     const [action, targetUserIdStr] = data.split('_');
     const targetUserId = parseInt(targetUserIdStr);
 
@@ -183,22 +191,51 @@ bot.on('callback_query', (query) => {
     } else if (action === 'reject') {
         const keyboard = {
             inline_keyboard: [
-                [{ text: '🔄 Подать снова', callback_data: 'retry_apply' }] // ✅
+                [{ text: '🔄 Подать снова', callback_ 'retry_apply' }]
             ]
         };
-        bot.sendMessage(targetUserId, '❌ Ваша заявка отклонена. Если хотите — подайте снова.', {
-            reply_markup: keyboard
+        bot.sendMessage(targetUserId, '❌ Ваша заявка отклонена. Если хотите — подайте снова.', {            reply_markup: keyboard
         });
         bot.answerCallbackQuery(query.id, { text: '❌ Отклонено', show_alert: true });
     }
 
-    // Убираем кнопки
     bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
-        chat_id: query.message.chat.id,        message_id: query.message.message_id
+        chat_id: query.message.chat.id,
+        message_id: query.message.message_id
     }).catch(() => {});
 });
 
-// Обработка кнопки "Подать снова"
+// Обработка отзывов
+bot.on('message', (msg) => {
+    const chatId = msg.chat.id;
+    const text = msg.text;
+    const userId = msg.from.id;
+
+    if (!userStates[userId]) return;
+    const state = userStates[userId];
+
+    if (state.step === 'review_rating') {
+        const rating = parseInt(text);
+        if (rating >= 1 && rating <= 5) {
+            state.rating = rating;
+            state.step = 'review_comment';
+            bot.sendMessage(chatId, 'Теперь введите комментарий:');
+        } else {
+            bot.sendMessage(chatId, 'Введите число от 1 до 5.');
+        }
+    } else if (state.step === 'review_comment') {
+        const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
+        reviews.push({
+            user: username,
+            rating: state.rating,
+            comment: text
+        });
+        bot.sendMessage(chatId, `✅ Спасибо за отзыв!\nВаша оценка: ${state.rating}⭐`);
+        delete userStates[userId];
+    }
+});
+
+// Кнопка "Подать снова"
 bot.on('callback_query', (query) => {
     if (query.data === 'retry_apply') {
         userStates[query.from.id] = { step: 'age' };
@@ -206,5 +243,4 @@ bot.on('callback_query', (query) => {
         bot.answerCallbackQuery(query.id);
     }
 });
-
-console.log('🤖 Бот запущен. Ожидание команды /apply...');
+console.log('🤖 Бот запущен. Ожидание команд...');
