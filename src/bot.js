@@ -1,51 +1,80 @@
 const TelegramBot = require('node-telegram-bot-api');
+require('dotenv').config();
 
-// Замените 'YOUR_BOT_TOKEN' на токен вашего бота от @BotFather
-const token = '8373401152:AAHxcG5u8Xgj6yweOkdi72LeboFhFltBlL0';
-const bot = new TelegramBot(token, {polling: true});
+const token = process.env.TELEGRAM_BOT_TOKEN; // Не забудьте указать токен в .env
+const bot = new TelegramBot(token, { polling: true });
 
+// Хранение состояния пользователей (можно заменить на базу данных)
+const userStates = {};
+
+// Команда /start
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
-    
-    // Опции для клавиатуры
-    const keyboard = {
-        reply_markup: JSON.stringify({
-            inline_keyboard: [
-                [
-                    {text: ' fox-smp.com', callback_data: 'server_ip'},
-                ]
-            ]
-        })
-    };
-
-    // Отправляем сообщение с кнопкой
-    bot.sendMessage(chatId, `Добро пожаловать! Нажмите кнопку ниже, чтобы получить информацию о сервере:`, keyboard);
+    bot.sendMessage(chatId, 'Привет! Я бот для подачи заявки на сервер. Напиши /apply, чтобы начать.');
 });
 
-// Обработка нажатия на инлайн-кнопку
-bot.on('callback_query', (query) => {
-    const chatId = query.message.chat.id;
-    const message_id = query.message.message_id;
+// Команда /apply
+bot.onText(/\/apply/, (msg) => {
+    const chatId = msg.chat.id;
+    userStates[chatId] = { step: 'age' }; // Устанавливаем состояние
+    bot.sendMessage(chatId, 'Введите ваш возраст:');
+});
 
-    if (query.data === 'server_ip') {
-        // Текст с информацией о сервере
-        const serverInfo = `
-*IP сервера:* fox-smp.com
-*Основная версия сервера:* 1.21.11
-*Поддерживаемые версии Minecraft:* 1.8 - 1.26.1
-*Поддерживаемые моды:* 
-- Plasmo Voice
-- Emote Craft
+// Обработка текстовых сообщений
+bot.on('message', (msg) => {
+    const chatId = msg.chat.id;
+    const text = msg.text;
 
-[Правила сервера](https://docs.google.com/document/d/14Bonb5QdGe6vyxn6lqCneB8foplgdlK8yBwuvVV0kQY/edit?usp=sharing)
-        `.trim();
+    // Проверяем, есть ли у пользователя активное состояние
+    if (!userStates[chatId]) return;
 
-        // Редактируем сообщение, добавляя информацию о сервере
-        bot.editMessageText(serverInfo, {
-            chat_id: chatId,
-            message_id: message_id,
-            parse_mode: 'Markdown',
-            disable_web_page_preview: true
-        });
+    const state = userStates[chatId];
+
+    switch (state.step) {
+        case 'age':
+            if (/^\d+$/.test(text) && parseInt(text) > 0) {
+                state.age = text;
+                state.step = 'gender';
+                bot.sendMessage(chatId, 'Введите ваш пол (мужской/женский/другое):');
+            } else {
+                bot.sendMessage(chatId, 'Пожалуйста, введите корректный возраст (число).');
+            }
+            break;
+
+        case 'gender':
+            if (['мужской', 'женский', 'другое'].includes(text.toLowerCase())) {
+                state.gender = text;
+                state.step = 'nickname';
+                bot.sendMessage(chatId, 'Введите ваш никнейм в Minecraft:');
+            } else {
+                bot.sendMessage(chatId, 'Пожалуйста, введите "мужской", "женский" или "другое".');
+            }
+            break;
+
+        case 'nickname':
+            state.nickname = text;
+            state.step = 'about';
+            bot.sendMessage(chatId, 'Расскажите немного о себе:');
+            break;
+
+        case 'about':
+            state.about = text;
+            // Формируем сообщение с данными
+            const applicationText = `
+Новая заявка на сервер:
+- Возраст: ${state.age}
+- Пол: ${state.gender}
+- Ник: ${state.nickname}
+- О себе: ${state.about}
+            `.trim();
+            bot.sendMessage(chatId, 'Спасибо за заявку! Вот ваши данные:', { reply_markup: { remove_keyboard: true } });
+            bot.sendMessage(chatId, applicationText);
+
+            // Очищаем состояние
+            delete userStates[chatId];
+            break;
+
+        default:
+            break;
     }
 });
