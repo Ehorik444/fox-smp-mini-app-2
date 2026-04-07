@@ -14,7 +14,7 @@ const FORUM_CHAT_ID = '-1003255144076';
 const THREAD_ID = 3567;
 
 const ADMIN_CHAT_IDS = [5372937661, 2121418969];
-const ADMIN_IDS = new Set([...ADMIN_CHAT_IDS]);
+const ADMIN_IDS = new Set([...ADMIN_CHAT_IDS]); // ✅ Исправлено
 
 const userStates = {};
 
@@ -35,12 +35,12 @@ const getAverageRating = () => {
 const mainMenuKeyboard = {
     inline_keyboard: [
         [
-            { text: '📝 Подать заявку', callback_data: 'apply_start' },
-            { text: '⭐ Оценить сервер', callback_data: 'vote_start' }
+            { text: '📝 Подать заявку', callback_ 'apply_start' },
+            { text: '⭐ Оценить сервер', callback_ 'vote_start' }
         ],
         [
             { text: '📊 Статистика', callback_data: 'status_show' },
-            { text: '📖 Отзывы', callback_data: 'reviews_show' }
+            { text: '📖 Отзывы', callback_ 'reviews_show' }
         ],
         [
             { text: '📜 Правила сервера', url: 'https://docs.google.com/document/d/14Bonb5QdGe6vyxn6lqCneB8foplgdlK8yBwuvVV0kQY/edit?usp=sharing' }
@@ -94,10 +94,10 @@ bot.on('callback_query', (query) => {
         case 'vote_start':
             const voteKeyboard = {
                 inline_keyboard: [
-                    [{ text: '⭐', callback_data: 'vote_1' }],
-                    [{ text: '⭐⭐', callback_data: 'vote_2' }],
-                    [{ text: '⭐⭐⭐', callback_data: 'vote_3' }],                    [{ text: '⭐⭐⭐⭐', callback_data: 'vote_4' }],
-                    [{ text: '⭐⭐⭐⭐⭐', callback_data: 'vote_5' }]
+                    [{ text: '⭐', callback_ 'vote_1' }],
+                    [{ text: '⭐⭐', callback_ 'vote_2' }],
+                    [{ text: '⭐⭐⭐', callback_ 'vote_3' }],                    [{ text: '⭐⭐⭐⭐', callback_ 'vote_4' }],
+                    [{ text: '⭐⭐⭐⭐⭐', callback_ 'vote_5' }]
                 ]
             };
             bot.sendMessage(chatId, '⭐ Поставьте оценку серверу Fox SMP:', { reply_markup: voteKeyboard });
@@ -105,7 +105,6 @@ bot.on('callback_query', (query) => {
             break;
 
         case 'status_show':
-            // Проверяем статус на порту 20073
             msu.status('fox-smp.com', { port: 20073 })
                 .then(res => {
                     const statusText = `
@@ -115,7 +114,6 @@ bot.on('callback_query', (query) => {
 - Версия: ${res.version.name}
 - Пинг: ${res.roundTripLatency} мс
 - Описание: ${res.description.text}
-                    `.trim();
                     bot.sendMessage(chatId, statusText);
                 })
                 .catch(() => {
@@ -145,9 +143,9 @@ bot.on('callback_query', (query) => {
 
             const reviewKeyboard = {
                 inline_keyboard: [
-                    [{ text: '📝 Оставить отзыв', callback_data: 'leave_review' }]                ]
+                    [{ text: '📝 Оставить отзыв', callback_data: 'leave_review' }]
+                ]
             };
-
             bot.sendMessage(chatId, reviewList, { reply_markup: reviewKeyboard });
             bot.answerCallbackQuery(query.id);
             break;
@@ -194,9 +192,9 @@ bot.on('callback_query', (query) => {
 
             bot.sendMessage(FORUM_CHAT_ID, appText, { message_thread_id: THREAD_ID })
                 .then(sentMsg => {
-                    const msgId = sentMsg.message_id;                    const approvalButtons = {
-                        inline_keyboard: [
-                            [
+                    const msgId = sentMsg.message_id;
+                    const approvalButtons = {
+                        inline_keyboard: [                            [
                                 { text: '✅ Принять', callback_data: `approve_${chatId}` },
                                 { text: '❌ Отклонить', callback_data: `reject_${chatId}` }
                             ]
@@ -243,9 +241,9 @@ bot.on('callback_query', (query) => {
             if (data.startsWith('approve_') || data.startsWith('reject_')) {
                 const [action, targetIdStr] = data.split('_');
                 const targetUserId = parseInt(targetIdStr);
+
                 if (!ADMIN_IDS.has(userId)) {
-                    bot.answerCallbackQuery(query.id, { text: '❌ У вас нет прав.', show_alert: true });
-                    return;
+                    bot.answerCallbackQuery(query.id, { text: '❌ У вас нет прав.', show_alert: true });                    return;
                 }
 
                 if (action === 'approve') {
@@ -292,9 +290,9 @@ bot.on('message', (msg) => {
             state.step = 'review_comment';
             bot.sendMessage(chatId, 'Теперь напишите краткий комментарий:');
         } else {
-            bot.sendMessage(chatId, 'Введите число от 1 до 5.');        }
-    } else if (state.step === 'review_comment') {
-        const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
+            bot.sendMessage(chatId, 'Введите число от 1 до 5.');
+        }
+    } else if (state.step === 'review_comment') {        const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
         reviews.push({
             user: username,
             rating: state.rating,
@@ -341,9 +339,9 @@ bot.on('message', (msg) => {
             bot.sendMessage(chatId, 'Расскажите о себе (кратко):');
             break;
 
-        case 'about':            state.about = text;
+        case 'about':
+            state.about = text;
             state.username = from.username ? `@${from.username}` : from.first_name;
-
             const preview = `
 Вот ваша заявка:
 - От кого: ${state.username}
