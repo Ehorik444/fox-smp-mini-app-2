@@ -13,7 +13,7 @@ const FORUM_CHAT_ID = '-1003255144076';
 const THREAD_ID = 3567;
 
 // ID админа (которому будут приходить уведомления)
-const ADMIN_CHAT_ID = 5372937661;
+const ADMIN_CHAT_IDS = [5372937661, 2121418969]; // массив ID админов
 
 const userStates = {};
 
