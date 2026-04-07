@@ -1,1 +1,15 @@
-
+{
+  "name": "telegram-minecraft-bot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/bot.js",
+  "scripts": {
+    "start": "node src/bot.js"
+  },
+  "dependencies": {
+    "node-telegram-bot-api": "^0.65.1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
