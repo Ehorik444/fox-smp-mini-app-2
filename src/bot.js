@@ -1,5 +1,5 @@
 const TelegramBot = require('node-telegram-bot-api');
-const msu = require('minecraft-server-util'); // Убедитесь, что пакет установлен
+const msu = require('minecraft-server-util');
 require('dotenv').config();
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -14,7 +14,7 @@ const FORUM_CHAT_ID = '-1003255144076';
 const THREAD_ID = 3567;
 
 const ADMIN_CHAT_IDS = [5372937661, 2121418969];
-const ADMIN_IDS = new Set([...ADMIN_CHAT_IDS]); // ✅ Исправлено
+const ADMIN_IDS = new Set([...ADMIN_CHAT_IDS]);
 
 const userStates = {};
 
