@@ -1,31 +1,27 @@
 const TelegramBot = require('node-telegram-bot-api');
 require('dotenv').config();
 
-const token = process.env.8373401152:AAHxcG5u8Xgj6yweOkdi72LeboFhFltBlL0; // Не забудьте указать токен в .env
+const token = process.env.TELEGRAM_BOT_TOKEN; // ← Вот так правильно
 const bot = new TelegramBot(token, { polling: true });
 
-// Хранение состояния пользователей (можно заменить на базу данных)
+// Хранение состояния пользователей
 const userStates = {};
 
-// Команда /start
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
-    bot.sendMessage(chatId, 'Привет! Я бот для подачи заявки на сервер. Напиши /apply, чтобы начать.');
+    bot.sendMessage(chatId, 'Привет! Напиши /apply, чтобы подать заявку на сервер.');
 });
 
-// Команда /apply
 bot.onText(/\/apply/, (msg) => {
     const chatId = msg.chat.id;
-    userStates[chatId] = { step: 'age' }; // Устанавливаем состояние
+    userStates[chatId] = { step: 'age' };
     bot.sendMessage(chatId, 'Введите ваш возраст:');
 });
 
-// Обработка текстовых сообщений
 bot.on('message', (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text;
 
-    // Проверяем, есть ли у пользователя активное состояние
     if (!userStates[chatId]) return;
 
     const state = userStates[chatId];
@@ -59,7 +55,6 @@ bot.on('message', (msg) => {
 
         case 'about':
             state.about = text;
-            // Формируем сообщение с данными
             const applicationText = `
 Новая заявка на сервер:
 - Возраст: ${state.age}
@@ -67,14 +62,9 @@ bot.on('message', (msg) => {
 - Ник: ${state.nickname}
 - О себе: ${state.about}
             `.trim();
-            bot.sendMessage(chatId, 'Спасибо за заявку! Вот ваши данные:', { reply_markup: { remove_keyboard: true } });
+            bot.sendMessage(chatId, 'Спасибо за заявку!', { reply_markup: { remove_keyboard: true } });
             bot.sendMessage(chatId, applicationText);
-
-            // Очищаем состояние
             delete userStates[chatId];
-            break;
-
-        default:
             break;
     }
 });
