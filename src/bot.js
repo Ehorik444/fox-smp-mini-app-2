@@ -2,87 +2,29 @@ const TelegramBot = require('node-telegram-bot-api');
 require('dotenv').config();
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
+if (!token) {
+    console.error('[ERROR] TELEGRAM_BOT_TOKEN не задан в .env');
+    process.exit(1);
+}
+
 const bot = new TelegramBot(token, { polling: true });
 
-// ID чата (форума)
-const forumChatId = '-1003255144076';
-
-// Хранение состояния пользователей
-const userStates = {};
-
-// Команда /start
-bot.onText(/\/start/, (msg) => {
-    const chatId = msg.chat.id;
-    bot.sendMessage(chatId, 'Привет! Напиши /apply, чтобы подать заявку на сервер.');
-});
-
-// Команда /id — показывает ID чата
+// Команда /id: показывает ID ЧАТА, где она вызвана
 bot.onText(/\/id/, (msg) => {
     const chatId = msg.chat.id;
-    bot.sendMessage(chatId, `ID этого чата: \`${chatId}\``, { parse_mode: 'Markdown' });
+    const chatType = msg.chat.type;
+    const title = msg.chat.title || '— личный чат —';
+
+    bot.sendMessage(
+        chatId,
+        `📌 ID этого чата: \`${chatId}\`\n🔹 Тип: ${chatType}\n🔹 Название: ${title}`,
+        { parse_mode: 'Markdown' }
+    );
 });
 
-// Команда /apply
-bot.onText(/\/apply/, (msg) => {
-    const chatId = msg.chat.id;
-    userStates[chatId] = { step: 'age' };
-    bot.sendMessage(chatId, 'Введите ваш возраст:');
+// Опционально: /start для теста
+bot.onText(/\/start/, (msg) => {
+    bot.sendMessage(msg.chat.id, 'Напишите /id, чтобы узнать ID текущего чата.');
 });
 
-// Обработка сообщений (для формы)
-bot.on('message', (msg) => {
-    const chatId = msg.chat.id;
-    const text = msg.text;
-
-    if (!userStates[chatId]) return;
-
-    const state = userStates[chatId];
-
-    switch (state.step) {
-        case 'age':
-            if (/^\d+$/.test(text) && parseInt(text) > 0) {
-                state.age = text;
-                state.step = 'gender';
-                bot.sendMessage(chatId, 'Введите ваш пол (мужской/женский/другое):');
-            } else {
-                bot.sendMessage(chatId, 'Пожалуйста, введите корректный возраст (число).');
-            }
-            break;
-
-        case 'gender':
-            if (['мужской', 'женский', 'другое'].includes(text.toLowerCase())) {
-                state.gender = text;
-                state.step = 'nickname';
-                bot.sendMessage(chatId, 'Введите ваш никнейм в Minecraft:');
-            } else {
-                bot.sendMessage(chatId, 'Пожалуйста, введите "мужской", "женский" или "другое".');
-            }
-            break;
-
-        case 'nickname':
-            state.nickname = text;
-            state.step = 'about';
-            bot.sendMessage(chatId, 'Расскажите немного о себе:');
-            break;
-
-        case 'about':
-            state.about = text;
-            const applicationText = `
-Новая заявка на сервер:
-- Возраст: ${state.age}
-- Пол: ${state.gender}
-- Ник: ${state.nickname}
-- О себе: ${state.about}
-            `.trim();
-
-            // Отправляем заявку в форум
-            bot.sendMessage(forumChatId, applicationText);
-
-            // Уведомляем пользователя
-            bot.sendMessage(chatId, 'Спасибо за заявку! Она отправлена на рассмотрение.', { reply_markup: { remove_keyboard: true } });
-
-            // Очищаем состояние
-            delete userStates[chatId];
-            break;
-    }
-});
+console.log('✅ Бот запущен. Ожидание команды /id...');
