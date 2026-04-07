@@ -82,8 +82,8 @@ bot.on('message', (msg) => {
             const keyboard = {
                 inline_keyboard: [
                     [
-                        { text: '✅ Да', callback_data: 'confirm_submit' },
-                        { text: '❌ Изменить', callback_data: 'restart_apply' }
+                        { text: '✅ Да', callback_data: 'confirm_submit' },      // ✅ ПРАВИЛЬНО
+                        { text: '❌ Изменить', callback_data: 'restart_apply' } // ✅ ПРАВИЛЬНО
                     ]
                 ]
             };
@@ -125,8 +125,8 @@ bot.on('callback_query', (query) => {
                 const approvalButtons = {
                     inline_keyboard: [
                         [
-                            { text: '✅ Принять', callback_data: `approve_${chatId}` },
-                            { text: '❌ Отклонить', callback_data: `reject_${chatId}` }
+                            { text: '✅ Принять', callback_data: `approve_${chatId}` },      // ✅
+                            { text: '❌ Отклонить', callback_data: `reject_${chatId}` }     // ✅
                         ]
                     ]
                 };
@@ -183,7 +183,7 @@ bot.on('callback_query', (query) => {
     } else if (action === 'reject') {
         const keyboard = {
             inline_keyboard: [
-                [{ text: '🔄 Подать снова', callback_data: 'retry_apply' }]
+                [{ text: '🔄 Подать снова', callback_data: 'retry_apply' }] // ✅
             ]
         };
         bot.sendMessage(targetUserId, '❌ Ваша заявка отклонена. Если хотите — подайте снова.', {
