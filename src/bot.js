@@ -1,5 +1,5 @@
 const TelegramBot = require('node-telegram-bot-api');
-const msu = require('minecraft-server-util');
+const msu = require('minecraft-server-util'); // Убедитесь, что пакет установлен
 require('dotenv').config();
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -35,12 +35,12 @@ const getAverageRating = () => {
 const mainMenuKeyboard = {
     inline_keyboard: [
         [
-            { text: '📝 Подать заявку', callback_ 'apply_start' },
-            { text: '⭐ Оценить сервер', callback_ 'vote_start' }
+            { text: '📝 Подать заявку', callback_data: 'apply_start' }, // ✅
+            { text: '⭐ Оценить сервер', callback_data: 'vote_start' } // ✅
         ],
         [
-            { text: '📊 Статистика', callback_data: 'status_show' },
-            { text: '📖 Отзывы', callback_ 'reviews_show' }
+            { text: '📊 Статистика', callback_data: 'status_show' }, // ✅
+            { text: '📖 Отзывы', callback_data: 'reviews_show' } // ✅
         ],
         [
             { text: '📜 Правила сервера', url: 'https://docs.google.com/document/d/14Bonb5QdGe6vyxn6lqCneB8foplgdlK8yBwuvVV0kQY/edit?usp=sharing' }
@@ -94,10 +94,10 @@ bot.on('callback_query', (query) => {
         case 'vote_start':
             const voteKeyboard = {
                 inline_keyboard: [
-                    [{ text: '⭐', callback_ 'vote_1' }],
-                    [{ text: '⭐⭐', callback_ 'vote_2' }],
-                    [{ text: '⭐⭐⭐', callback_ 'vote_3' }],                    [{ text: '⭐⭐⭐⭐', callback_ 'vote_4' }],
-                    [{ text: '⭐⭐⭐⭐⭐', callback_ 'vote_5' }]
+                    [{ text: '⭐', callback_data: 'vote_1' }], // ✅
+                    [{ text: '⭐⭐', callback_data: 'vote_2' }], // ✅
+                    [{ text: '⭐⭐⭐', callback_data: 'vote_3' }], // ✅                    [{ text: '⭐⭐⭐⭐', callback_data: 'vote_4' }], // ✅
+                    [{ text: '⭐⭐⭐⭐⭐', callback_data: 'vote_5' }] // ✅
                 ]
             };
             bot.sendMessage(chatId, '⭐ Поставьте оценку серверу Fox SMP:', { reply_markup: voteKeyboard });
@@ -114,6 +114,7 @@ bot.on('callback_query', (query) => {
 - Версия: ${res.version.name}
 - Пинг: ${res.roundTripLatency} мс
 - Описание: ${res.description.text}
+                    `.trim();
                     bot.sendMessage(chatId, statusText);
                 })
                 .catch(() => {
@@ -143,9 +144,9 @@ bot.on('callback_query', (query) => {
 
             const reviewKeyboard = {
                 inline_keyboard: [
-                    [{ text: '📝 Оставить отзыв', callback_data: 'leave_review' }]
-                ]
-            };
+                    [{ text: '📝 Оставить отзыв', callback_data: 'leave_review' }] // ✅
+                ]            };
+
             bot.sendMessage(chatId, reviewList, { reply_markup: reviewKeyboard });
             bot.answerCallbackQuery(query.id);
             break;
@@ -193,10 +194,10 @@ bot.on('callback_query', (query) => {
             bot.sendMessage(FORUM_CHAT_ID, appText, { message_thread_id: THREAD_ID })
                 .then(sentMsg => {
                     const msgId = sentMsg.message_id;
-                    const approvalButtons = {
-                        inline_keyboard: [                            [
-                                { text: '✅ Принять', callback_data: `approve_${chatId}` },
-                                { text: '❌ Отклонить', callback_data: `reject_${chatId}` }
+                    const approvalButtons = {                        inline_keyboard: [
+                            [
+                                { text: '✅ Принять', callback_data: `approve_${chatId}` }, // ✅
+                                { text: '❌ Отклонить', callback_data: `reject_${chatId}` } // ✅
                             ]
                         ]
                     };
@@ -242,8 +243,8 @@ bot.on('callback_query', (query) => {
                 const [action, targetIdStr] = data.split('_');
                 const targetUserId = parseInt(targetIdStr);
 
-                if (!ADMIN_IDS.has(userId)) {
-                    bot.answerCallbackQuery(query.id, { text: '❌ У вас нет прав.', show_alert: true });                    return;
+                if (!ADMIN_IDS.has(userId)) {                    bot.answerCallbackQuery(query.id, { text: '❌ У вас нет прав.', show_alert: true });
+                    return;
                 }
 
                 if (action === 'approve') {
@@ -252,7 +253,7 @@ bot.on('callback_query', (query) => {
                 } else if (action === 'reject') {
                     const keyboard = {
                         inline_keyboard: [
-                            [{ text: '🔄 Подать снова', callback_data: 'retry_apply' }]
+                            [{ text: '🔄 Подать снова', callback_data: 'retry_apply' }] // ✅
                         ]
                     };
                     bot.sendMessage(targetUserId, '❌ Ваша заявка отклонена. Если хотите — подайте снова.', {
@@ -291,8 +292,8 @@ bot.on('message', (msg) => {
             bot.sendMessage(chatId, 'Теперь напишите краткий комментарий:');
         } else {
             bot.sendMessage(chatId, 'Введите число от 1 до 5.');
-        }
-    } else if (state.step === 'review_comment') {        const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
+        }    } else if (state.step === 'review_comment') {
+        const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
         reviews.push({
             user: username,
             rating: state.rating,
@@ -340,8 +341,8 @@ bot.on('message', (msg) => {
             break;
 
         case 'about':
-            state.about = text;
-            state.username = from.username ? `@${from.username}` : from.first_name;
+            state.about = text;            state.username = from.username ? `@${from.username}` : from.first_name;
+
             const preview = `
 Вот ваша заявка:
 - От кого: ${state.username}
@@ -356,8 +357,8 @@ bot.on('message', (msg) => {
             const keyboard = {
                 inline_keyboard: [
                     [
-                        { text: '✅ Да', callback_data: 'confirm_submit' },
-                        { text: '❌ Изменить', callback_data: 'restart_apply' }
+                        { text: '✅ Да', callback_data: 'confirm_submit' }, // ✅
+                        { text: '❌ Изменить', callback_data: 'restart_apply' } // ✅
                     ]
                 ]
             };
