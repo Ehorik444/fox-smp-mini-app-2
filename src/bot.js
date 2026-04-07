@@ -23,8 +23,7 @@ bot.onText(/\/start/, (msg) => {
 
 bot.onText(/\/apply/, (msg) => {
     const chatId = msg.chat.id;
-    userStates[chatId] = { step: 'age', userId: msg.from.id };
-    console.log(`[START] Пользователь ${msg.from.id} начал заявку в чате ${chatId}`);
+    userStates[chatId] = { step: 'age' };
     bot.sendMessage(chatId, 'Введите ваш возраст:');
 });
 
@@ -33,21 +32,15 @@ bot.on('message', (msg) => {
     const text = msg.text;
     const from = msg.from;
 
-    // Логируем входящее сообщение
-    console.log(`[MSG] От ${from.id} в чате ${chatId}: "${text}"`);
-
-    if (!userStates[chatId]) {
-        console.warn(`[WARN] Нет состояния для чата ${chatId}. Возможно, бот перезапущен.`);
-        return;
-    }
+    if (!userStates[chatId]) return;
 
     const state = userStates[chatId];
-    console.log(`[STATE] Текущий шаг: ${state.step}`);
 
     switch (state.step) {
         case 'age':
             if (/^\d+$/.test(text) && parseInt(text) > 0) {
-                state.age = text;                state.step = 'gender';
+                state.age = text;
+                state.step = 'gender';
                 bot.sendMessage(chatId, 'Введите ваш пол (мужской/женский/другое):');
             } else {
                 bot.sendMessage(chatId, 'Пожалуйста, введите корректный возраст (число).');
@@ -73,11 +66,12 @@ bot.on('message', (msg) => {
         case 'about':
             state.about = text;
 
-            // Формируем данные
+            // 🎯 Только юзернейм или имя — без ID
             const username = from.username ? `@${from.username}` : from.first_name;
+
             const applicationText = `
 Новая заявка на сервер Fox SMP:
-- От кого: ${username} (ID: ${from.id})
+- От кого: ${username}
 - Возраст: ${state.age}
 - Пол: ${state.gender}
 - Ник: ${state.nickname}
@@ -85,27 +79,21 @@ bot.on('message', (msg) => {
 - Подано через бота
             `.trim();
 
-            console.log(`[SEND] Отправляю в чат ${FORUM_CHAT_ID}, тема ${THREAD_ID}:`, applicationText);
-
             bot.sendMessage(
                 FORUM_CHAT_ID,
                 applicationText,
                 { message_thread_id: THREAD_ID }
             )
             .then(() => {
-                console.log(`[SUCCESS] Заявка отправлена для ${from.id}`);
                 bot.sendMessage(chatId, '✅ Заявка отправлена в тему "Заявки"!', { reply_markup: { remove_keyboard: true } });
             })
-            .catch(err => {                console.error(`[ERROR] Не удалось отправить заявку для ${from.id}:`, err.message);
-                bot.sendMessage(chatId, '❌ Ошибка отправки. Попробуйте ещё раз или обратитесь к админу.');
+            .catch(err => {
+                console.error('Ошибка отправки:', err.message);
+                bot.sendMessage(chatId, '❌ Ошибка отправки. Попробуйте ещё раз.');
             });
 
             delete userStates[chatId];
             break;
-
-        default:
-            console.warn(`[UNKNOWN STEP] У пользователя ${from.id} шаг: ${state.step}`);
-            bot.sendMessage(chatId, 'Произошла ошибка. Начните заново: /apply');
     }
 });
 
