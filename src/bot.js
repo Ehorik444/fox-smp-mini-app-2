@@ -13,9 +13,7 @@ const FORUM_CHAT_ID = '-1003255144076';
 const THREAD_ID = 3567;
 
 const ADMIN_CHAT_IDS = [5372937661, 2121418969];
-const ADMIN_IDS = new Set([...ADMIN_CHAT_IDS]);
-
-const userStates = {};
+const ADMIN_IDS = new Set([...ADMIN_CHAT_IDS userStates = {};
 
 // Хранение отзывов (временно в памяти)
 let reviews = [
@@ -48,12 +46,13 @@ bot.onText(/\/start/, (msg) => {
         { reply_markup: mainMenuKeyboard }
     );
 });
-// Обработка кнопок меню
-bot.on('callback_query', (query) => {
+
+// Обработка кнопок менюbot.on('callback_query', (query) => {
     const data = query.data;
     const chatId = query.message.chat.id;
     const userId = query.from.id;
-    const username = query.from.username ? `@${query.from.username}` : query.from.first_name;
+    const from = query.from;
+    const username = from.username ? `@${from.username}` : from.first_name;
 
     switch (data) {
         case 'apply_start':
@@ -96,8 +95,8 @@ bot.on('callback_query', (query) => {
             } else {
                 reviews.forEach((rev, i) => {
                     reviewList += `${i + 1}. ${rev.user} — ${rev.rating}⭐\n«${rev.comment}»\n\n`;
-                });            }
-
+                });
+            }
             const reviewKeyboard = {
                 inline_keyboard: [
                     [{ text: '📝 Оставить отзыв', callback_data: 'leave_review' }]
@@ -126,11 +125,17 @@ bot.on('callback_query', (query) => {
             bot.answerCallbackQuery(query.id);
             break;
 
-        // Обработка заявки (подтверждение)
+        // Подтверждение заявки
         case 'confirm_submit':
             const state = userStates[chatId];
             if (!state) {
                 bot.answerCallbackQuery(query.id, { text: '❌ Ошибка: данные утеряны.', show_alert: true });
+                return;
+            }
+
+            // 🔑 КРИТИЧЕСКИ ВАЖНО: username должен быть сохранён в state при заполнении
+            if (!state.username) {
+                bot.answerCallbackQuery(query.id, { text: '❌ Ошибка: не удалось определить ваш ник. Попробуйте ещё раз.', show_alert: true });
                 return;
             }
 
@@ -140,12 +145,12 @@ bot.on('callback_query', (query) => {
 - Возраст: ${state.age}
 - Пол: ${state.gender}
 - Ник: ${state.nickname}
-- О себе: ${state.about}
-            `.trim();
+- О себе: ${state.about}            `.trim();
 
             bot.sendMessage(FORUM_CHAT_ID, appText, { message_thread_id: THREAD_ID })
                 .then(sentMsg => {
-                    const msgId = sentMsg.message_id;                    const approvalButtons = {
+                    const msgId = sentMsg.message_id;
+                    const approvalButtons = {
                         inline_keyboard: [
                             [
                                 { text: '✅ Принять', callback_data: `approve_${chatId}` },
@@ -159,6 +164,7 @@ bot.on('callback_query', (query) => {
                         message_id: msgId
                     }).catch(() => {});
 
+                    // Уведомляем админов
                     ADMIN_CHAT_IDS.forEach(adminId => {
                         bot.sendMessage(adminId, `🔔 Новая заявка от ${state.username} (ID: ${chatId})`, {
                             reply_to_message_id: msgId,
@@ -172,7 +178,7 @@ bot.on('callback_query', (query) => {
                     });
                 })
                 .catch(err => {
-                    console.error('Ошибка отправки:', err.message);
+                    console.error('Ошибка отправки заявки:', err);
                     bot.answerCallbackQuery(query.id, { text: '❌ Ошибка. Попробуйте позже.', show_alert: true });
                 });
 
@@ -188,12 +194,7 @@ bot.on('callback_query', (query) => {
             });
             bot.answerCallbackQuery(query.id);
             break;
-
         // Одобрение/отклонение
-        case 'approve':
-        case 'reject':
-            // handled below via dynamic callback
-            break;
         default:
             if (data.startsWith('approve_') || data.startsWith('reject_')) {
                 const [action, targetIdStr] = data.split('_');
@@ -242,8 +243,8 @@ bot.on('message', (msg) => {
     if (!userStates[userId]) return;
     const state = userStates[userId];
 
-    if (state.step === 'review_rating') {
-        const rating = parseInt(text);        if (rating >= 1 && rating <= 5) {
+    if (state.step === 'review_rating') {        const rating = parseInt(text);
+        if (rating >= 1 && rating <= 5) {
             state.rating = rating;
             state.step = 'review_comment';
             bot.sendMessage(chatId, 'Теперь напишите краткий комментарий:');
@@ -259,6 +260,71 @@ bot.on('message', (msg) => {
         });
         bot.sendMessage(chatId, `✅ Спасибо за отзыв!\nВаша оценка: ${state.rating}⭐`);
         delete userStates[userId];
+    }
+});
+
+// Обработка формы заявки (возраст → пол → ник → о себе)
+bot.on('message', (msg) => {
+    const chatId = msg.chat.id;
+    const text = msg.text;
+    const from = msg.from;
+
+    if (!userStates[chatId]) return;
+    const state = userStates[chatId];
+
+    switch (state.step) {
+        case 'age':
+            if (/^\d+$/.test(text) && parseInt(text) > 0) {
+                state.age = text;
+                state.step = 'gender';
+                bot.sendMessage(chatId, 'Выберите пол: мужской / женский / другое');
+            } else {
+                bot.sendMessage(chatId, 'Введите возраст (число > 0):');
+            }
+            break;
+
+        case 'gender':
+            if (['мужской', 'женский', 'другое'].includes(text.toLowerCase())) {
+                state.gender = text;
+                state.step = 'nickname';
+                bot.sendMessage(chatId, 'Введите ваш игровой ник в Minecraft:');
+            } else {
+                bot.sendMessage(chatId, 'Выберите: мужской / женский / другое');
+            }
+            break;
+        case 'nickname':
+            state.nickname = text;
+            state.step = 'about';
+            bot.sendMessage(chatId, 'Расскажите о себе (кратко):');
+            break;
+
+        case 'about':
+            state.about = text;
+            // 🔑 Сохраняем username здесь — критично!
+            state.username = from.username ? `@${from.username}` : from.first_name;
+
+            const preview = `
+Вот ваша заявка:
+- От кого: ${state.username}
+- Возраст: ${state.age}
+- Пол: ${state.gender}
+- Ник: ${state.nickname}
+- О себе: ${state.about}
+
+Всё верно? Нажмите ✅ Да или ❌ Изменить.
+            `.trim();
+
+            const keyboard = {
+                inline_keyboard: [
+                    [
+                        { text: '✅ Да', callback_data: 'confirm_submit' },
+                        { text: '❌ Изменить', callback_data: 'restart_apply' }
+                    ]
+                ]
+            };
+
+            bot.sendMessage(chatId, preview, { reply_markup: keyboard });
+            break;
     }
 });
 
