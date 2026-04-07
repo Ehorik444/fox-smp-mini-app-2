@@ -12,8 +12,11 @@ const bot = new TelegramBot(token, { polling: true });
 const FORUM_CHAT_ID = '-1003255144076';
 const THREAD_ID = 3567;
 
-// ID админа (которому будут приходить уведомления)
-const ADMIN_CHAT_IDS = [5372937661, 2121418969]; // массив ID админов
+// ID админов, которым будут приходить уведомления
+const ADMIN_CHAT_IDS = [5372937661, 2121418969];
+
+// Список админов, которые могут одобрять/отклонять
+const ADMIN_IDS = new Set([...ADMIN_CHAT_IDS]);
 
 const userStates = {};
 
@@ -44,10 +47,10 @@ bot.on('message', (msg) => {
                 bot.sendMessage(chatId, 'Пожалуйста, введите корректный возраст (число).');
             }
             break;
-
         case 'gender':
             if (['мужской', 'женский', 'другое'].includes(text.toLowerCase())) {
-                state.gender = text;                state.step = 'nickname';
+                state.gender = text;
+                state.step = 'nickname';
                 bot.sendMessage(chatId, 'Введите ваш никнейм в Minecraft:');
             } else {
                 bot.sendMessage(chatId, 'Пожалуйста, введите "мужской", "женский" или "другое".');
@@ -93,10 +96,10 @@ bot.on('message', (msg) => {
 // Обработка кнопок подтверждения
 bot.on('callback_query', (query) => {
     const data = query.data;
-    const chatId = query.message.chat.id;
-    const userId = query.from.id;
+    const chatId = query.message.chat.id;    const userId = query.from.id;
 
-    // Подтверждение отправки    if (data === 'confirm_submit') {
+    // Подтверждение отправки
+    if (data === 'confirm_submit') {
         const state = userStates[chatId];
 
         if (!state) {
@@ -133,19 +136,21 @@ bot.on('callback_query', (query) => {
                     message_id: msgId
                 }).catch(() => {});
 
-                // Уведомляем админа
-                bot.sendMessage(ADMIN_CHAT_ID, `🔔 Новая заявка от ${state.username} (ID: ${chatId})`, {
-                    reply_to_message_id: msgId,
-                    message_thread_id: THREAD_ID
-                }).catch(() => {});
+                // Уведомляем ВСЕХ админов
+                ADMIN_CHAT_IDS.forEach(adminId => {
+                    bot.sendMessage(adminId, `🔔 Новая заявка от ${state.username} (ID: ${chatId})`, {
+                        reply_to_message_id: msgId,
+                        message_thread_id: THREAD_ID
+                    }).catch(() => {}); // игнорируем, если админ заблокировал бота
+                });
 
                 // Уведомляем пользователя
-                bot.editMessageText('✅ Заявка отправлена. Админы скоро её рассмотрят.', {
-                    chat_id: chatId,
+                bot.editMessageText('✅ Заявка отправлена. Админы скоро её рассмотрят.', {                    chat_id: chatId,
                     message_id: query.message.message_id
                 });
             })
-            .catch(err => {                console.error('Ошибка отправки заявки:', err.message);
+            .catch(err => {
+                console.error('Ошибка отправки заявки:', err.message);
                 bot.answerCallbackQuery(query.id, { text: '❌ Ошибка. Попробуйте позже.', show_alert: true });
             });
 
@@ -167,6 +172,11 @@ bot.on('callback_query', (query) => {
     const [action, targetUserIdStr] = data.split('_');
     const targetUserId = parseInt(targetUserIdStr);
 
+    if (!ADMIN_IDS.has(userId)) {
+        bot.answerCallbackQuery(query.id, { text: '❌ У вас нет прав.', show_alert: true });
+        return;
+    }
+
     if (action === 'approve') {
         bot.sendMessage(targetUserId, '🎉 Ваша заявка одобрена! Добро пожаловать на сервер Fox SMP!');
         bot.answerCallbackQuery(query.id, { text: '✅ Принято', show_alert: true });
@@ -184,8 +194,7 @@ bot.on('callback_query', (query) => {
 
     // Убираем кнопки
     bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
-        chat_id: query.message.chat.id,
-        message_id: query.message.message_id
+        chat_id: query.message.chat.id,        message_id: query.message.message_id
     }).catch(() => {});
 });
 
@@ -194,7 +203,8 @@ bot.on('callback_query', (query) => {
     if (query.data === 'retry_apply') {
         userStates[query.from.id] = { step: 'age' };
         bot.sendMessage(query.from.id, 'Введите возраст:');
-        bot.answerCallbackQuery(query.id);    }
+        bot.answerCallbackQuery(query.id);
+    }
 });
 
 console.log('🤖 Бот запущен. Ожидание команды /apply...');
