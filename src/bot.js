@@ -10,17 +10,26 @@ const forumChatId = '-1003255144076';
 // Хранение состояния пользователей
 const userStates = {};
 
+// Команда /start
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
     bot.sendMessage(chatId, 'Привет! Напиши /apply, чтобы подать заявку на сервер.');
 });
 
+// Команда /id — показывает ID чата
+bot.onText(/\/id/, (msg) => {
+    const chatId = msg.chat.id;
+    bot.sendMessage(chatId, `ID этого чата: \`${chatId}\``, { parse_mode: 'Markdown' });
+});
+
+// Команда /apply
 bot.onText(/\/apply/, (msg) => {
     const chatId = msg.chat.id;
     userStates[chatId] = { step: 'age' };
     bot.sendMessage(chatId, 'Введите ваш возраст:');
 });
 
+// Обработка сообщений (для формы)
 bot.on('message', (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text;
