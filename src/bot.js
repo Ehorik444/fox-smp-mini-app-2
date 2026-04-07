@@ -48,7 +48,6 @@ bot.on('message', (msg) => {
                 bot.sendMessage(chatId, 'Пожалуйста, введите корректный возраст (число).');
             }
             break;
-
         case 'gender':
             if (['мужской', 'женский', 'другое'].includes(text.toLowerCase())) {
                 state.gender = text;
@@ -67,8 +66,13 @@ bot.on('message', (msg) => {
 
         case 'about':
             state.about = text;
+            // Получаем юзернейм или имя
+            const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
+            const userId = msg.from.id; // На всякий случай
+
             const applicationText = `
 Новая заявка на сервер Fox SMP:
+- От кого: ${username} (ID: ${userId})
 - Возраст: ${state.age}
 - Пол: ${state.gender}
 - Ник: ${state.nickname}
@@ -92,7 +96,6 @@ bot.on('message', (msg) => {
 
             delete userStates[chatId];
             break;
-    }
-});
+    }});
 
 console.log('🤖 Бот запущен. Ожидание команды /apply...');
