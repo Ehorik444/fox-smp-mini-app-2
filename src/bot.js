@@ -12,13 +12,18 @@ const bot = new TelegramBot(token, { polling: true });
 const FORUM_CHAT_ID = '-1003255144076';
 const THREAD_ID = 3567;
 
-const ADMIN_IDS = new Set([5372937661]); // ваш ID
+// ID админа (которому будут приходить уведомления)
+const ADMIN_CHAT_ID = 5372937661;
 
 const userStates = {};
 
+bot.onText(/\/start/, (msg) => {
+    bot.sendMessage(msg.chat.id, 'Привет! Напиши /apply, чтобы подать заявку на сервер.');
+});
+
 bot.onText(/\/apply/, (msg) => {
     userStates[msg.chat.id] = { step: 'age' };
-    bot.sendMessage(msg.chat.id, 'Введите возраст:');
+    bot.sendMessage(msg.chat.id, 'Введите ваш возраст:');
 });
 
 bot.on('message', (msg) => {
@@ -30,80 +35,166 @@ bot.on('message', (msg) => {
     const state = userStates[chatId];
 
     switch (state.step) {
-        // ... (остальные шаги без изменений) ...
+        case 'age':
+            if (/^\d+$/.test(text) && parseInt(text) > 0) {
+                state.age = text;
+                state.step = 'gender';
+                bot.sendMessage(chatId, 'Введите ваш пол (мужской/женский/другое):');
+            } else {
+                bot.sendMessage(chatId, 'Пожалуйста, введите корректный возраст (число).');
+            }
+            break;
+
+        case 'gender':
+            if (['мужской', 'женский', 'другое'].includes(text.toLowerCase())) {
+                state.gender = text;                state.step = 'nickname';
+                bot.sendMessage(chatId, 'Введите ваш никнейм в Minecraft:');
+            } else {
+                bot.sendMessage(chatId, 'Пожалуйста, введите "мужской", "женский" или "другое".');
+            }
+            break;
+
+        case 'nickname':
+            state.nickname = text;
+            state.step = 'about';
+            bot.sendMessage(chatId, 'Расскажите немного о себе:');
+            break;
+
         case 'about':
             state.about = text;
-            const username = from.username ? `@${from.username}` : from.first_name;
-            const appText = `
-Новая заявка на сервер Fox SMP:
-- От кого: ${username}
+            state.username = from.username ? `@${from.username}` : from.first_name;
+
+            // Показываем предварительный просмотр
+            const preview = `
+Вот ваша заявка:
+- От кого: ${state.username}
 - Возраст: ${state.age}
 - Пол: ${state.gender}
 - Ник: ${state.nickname}
 - О себе: ${state.about}
+
+Всё верно? Нажмите ✅ Да или ❌ Изменить.
             `.trim();
 
-            // 🚨 Ключевое: отправляем СНАЧАЛА сообщение БЕЗ кнопок, получаем message_id
-            bot.sendMessage(FORUM_CHAT_ID, appText, { message_thread_id: THREAD_ID })
-                .then(sentMsg => {
-                    const msgId = sentMsg.message_id;
-                    // Теперь редактируем это сообщение — добавляем кнопки
-                    const keyboard = {
-                        inline_keyboard: [
-                            [
-                                { text: '✅ Принять', callback_data: `approve_${from.id}` },
-                                { text: '❌ Отклонить', callback_data: `reject_${from.id}` }
-                            ]
-                        ]
-                    };
+            const keyboard = {
+                inline_keyboard: [
+                    [
+                        { text: '✅ Да', callback_data: 'confirm_submit' },
+                        { text: '❌ Изменить', callback_data: 'restart_apply' }
+                    ]
+                ]
+            };
 
-                    bot.editMessageReplyMarkup(
-                        keyboard,
-                        { chat_id: FORUM_CHAT_ID, message_id: msgId, message_thread_id: THREAD_ID }
-                    ).catch(err => {
-                        console.error('Ошибка editMessageReplyMarkup:', err.message);
-                        // Если не удалось — отправим кнопки отдельным сообщением (резерв)
-                        bot.sendMessage(FORUM_CHAT_ID, '⚠️ Кнопки не загрузились. Админ может написать /accept или /reject.', {
-                            reply_to_message_id: msgId,
-                            message_thread_id: THREAD_ID
-                        });
-                    });
-
-                    bot.sendMessage(chatId, '✅ Заявка отправлена. Админы скоро её рассмотрят.');
-                })
-                .catch(err => {
-                    console.error('Ошибка отправки заявки:', err.message);
-                    bot.sendMessage(chatId, '❌ Ошибка. Попробуйте ещё раз.');
-                });
-
-            delete userStates[chatId];
+            bot.sendMessage(chatId, preview, { reply_markup: keyboard });
             break;
     }
 });
 
-// Обработка кнопок — как раньше
+// Обработка кнопок подтверждения
 bot.on('callback_query', (query) => {
-    const [action, targetIdStr] = query.data.split('_');
-    const adminId = query.from.id;
-    const targetId = parseInt(targetIdStr);
+    const data = query.data;
+    const chatId = query.message.chat.id;
+    const userId = query.from.id;
 
-    if (!ADMIN_IDS.has(adminId)) {
-        bot.answerCallbackQuery(query.id, { text: '❌ У вас нет прав.', show_alert: true });
+    // Подтверждение отправки    if (data === 'confirm_submit') {
+        const state = userStates[chatId];
+
+        if (!state) {
+            bot.answerCallbackQuery(query.id, { text: '❌ Ошибка: состояние утеряно.', show_alert: true });
+            return;
+        }
+
+        const appText = `
+Новая заявка на сервер Fox SMP:
+- От кого: ${state.username}
+- Возраст: ${state.age}
+- Пол: ${state.gender}
+- Ник: ${state.nickname}
+- О себе: ${state.about}
+        `.trim();
+
+        // Отправляем заявку в тему
+        bot.sendMessage(FORUM_CHAT_ID, appText, { message_thread_id: THREAD_ID })
+            .then(sentMsg => {
+                const msgId = sentMsg.message_id;
+
+                // Добавляем кнопки одобрения/отклонения
+                const approvalButtons = {
+                    inline_keyboard: [
+                        [
+                            { text: '✅ Принять', callback_data: `approve_${chatId}` },
+                            { text: '❌ Отклонить', callback_data: `reject_${chatId}` }
+                        ]
+                    ]
+                };
+
+                bot.editMessageReplyMarkup(approvalButtons, {
+                    chat_id: FORUM_CHAT_ID,
+                    message_id: msgId
+                }).catch(() => {});
+
+                // Уведомляем админа
+                bot.sendMessage(ADMIN_CHAT_ID, `🔔 Новая заявка от ${state.username} (ID: ${chatId})`, {
+                    reply_to_message_id: msgId,
+                    message_thread_id: THREAD_ID
+                }).catch(() => {});
+
+                // Уведомляем пользователя
+                bot.editMessageText('✅ Заявка отправлена. Админы скоро её рассмотрят.', {
+                    chat_id: chatId,
+                    message_id: query.message.message_id
+                });
+            })
+            .catch(err => {                console.error('Ошибка отправки заявки:', err.message);
+                bot.answerCallbackQuery(query.id, { text: '❌ Ошибка. Попробуйте позже.', show_alert: true });
+            });
+
+        delete userStates[chatId];
         return;
     }
 
-    if (action === 'approve') {
-        bot.sendMessage(targetId, '🎉 Ваша заявка одобрена! Добро пожаловать на сервер Fox SMP!');
-        bot.answerCallbackQuery(query.id, { text: '✅ Принято', show_alert: true });
-    } else if (action === 'reject') {
-        bot.sendMessage(targetId, '❌ Заявка отклонена. Подайте снова, если хотите.');        bot.answerCallbackQuery(query.id, { text: '❌ Отклонено', show_alert: true });
+    // Пользователь хочет повторить
+    if (data === 'restart_apply') {
+        userStates[chatId] = { step: 'age' };
+        bot.editMessageText('Введите возраст:', {
+            chat_id: chatId,
+            message_id: query.message.message_id
+        });
+        return;
     }
 
-    // Удаляем кнопки
-    bot.editMessageReplyMarkup(
-        { inline_keyboard: [] },
-        { chat_id: query.message.chat.id, message_id: query.message.message_id }
-    ).catch(() => {});
+    // Обработка кнопок одобрения/отклонения
+    const [action, targetUserIdStr] = data.split('_');
+    const targetUserId = parseInt(targetUserIdStr);
+
+    if (action === 'approve') {
+        bot.sendMessage(targetUserId, '🎉 Ваша заявка одобрена! Добро пожаловать на сервер Fox SMP!');
+        bot.answerCallbackQuery(query.id, { text: '✅ Принято', show_alert: true });
+    } else if (action === 'reject') {
+        const keyboard = {
+            inline_keyboard: [
+                [{ text: '🔄 Подать снова', callback_data: 'retry_apply' }]
+            ]
+        };
+        bot.sendMessage(targetUserId, '❌ Ваша заявка отклонена. Если хотите — подайте снова.', {
+            reply_markup: keyboard
+        });
+        bot.answerCallbackQuery(query.id, { text: '❌ Отклонено', show_alert: true });
+    }
+
+    // Убираем кнопки
+    bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
+        chat_id: query.message.chat.id,
+        message_id: query.message.message_id
+    }).catch(() => {});
 });
 
-console.log('🤖 Бот запущен.');
+// Обработка кнопки "Подать снова"
+bot.on('callback_query', (query) => {
+    if (query.data === 'retry_apply') {
+        userStates[query.from.id] = { step: 'age' };
+        bot.sendMessage(query.from.id, 'Введите возраст:');
+        bot.answerCallbackQuery(query.id);    }
+});
+
+console.log('🤖 Бот запущен. Ожидание команды /apply...');
