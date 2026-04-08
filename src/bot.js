@@ -35,18 +35,19 @@ const getAverageRating = () => {
 const mainMenuKeyboard = {
     inline_keyboard: [
         [
-            { text: '📝 Подать заявку', callback_data: 'apply_start' }, // ✅
-            { text: '⭐ Оценить сервер', callback_data: 'vote_start' } // ✅
+            { text: '📝 Подать заявку', callback_ 'apply_start' },
+            { text: '⭐ Оценить сервер', callback_ 'vote_start' }
         ],
         [
-            { text: '📊 Статистика', callback_data: 'status_show' }, // ✅
-            { text: '📖 Отзывы', callback_data: 'reviews_show' } // ✅
+            { text: '📊 Статистика', callback_ 'status_show' },
+            { text: '📖 Отзывы', callback_ 'reviews_show' }
         ],
         [
             { text: '📜 Правила сервера', url: 'https://docs.google.com/document/d/14Bonb5QdGe6vyxn6lqCneB8foplgdlK8yBwuvVV0kQY/edit?usp=sharing' }
         ]
     ]
 };
+
 // /start — показываем меню
 bot.onText(/\/start/, (msg) => {
     bot.sendMessage(
@@ -94,10 +95,11 @@ bot.on('callback_query', (query) => {
         case 'vote_start':
             const voteKeyboard = {
                 inline_keyboard: [
-                    [{ text: '⭐', callback_data: 'vote_1' }], // ✅
-                    [{ text: '⭐⭐', callback_data: 'vote_2' }], // ✅
-                    [{ text: '⭐⭐⭐', callback_data: 'vote_3' }], // ✅                    [{ text: '⭐⭐⭐⭐', callback_data: 'vote_4' }], // ✅
-                    [{ text: '⭐⭐⭐⭐⭐', callback_data: 'vote_5' }] // ✅
+                    [{ text: '⭐', callback_ 'vote_1' }],
+                    [{ text: '⭐⭐', callback_ 'vote_2' }],
+                    [{ text: '⭐⭐⭐', callback_data: 'vote_3' }],
+                    [{ text: '⭐⭐⭐⭐', callback_data: 'vote_4' }],
+                    [{ text: '⭐⭐⭐⭐⭐', callback_data: 'vote_5' }]
                 ]
             };
             bot.sendMessage(chatId, '⭐ Поставьте оценку серверу Fox SMP:', { reply_markup: voteKeyboard });
@@ -144,8 +146,9 @@ bot.on('callback_query', (query) => {
 
             const reviewKeyboard = {
                 inline_keyboard: [
-                    [{ text: '📝 Оставить отзыв', callback_data: 'leave_review' }] // ✅
-                ]            };
+                    [{ text: '📝 Оставить отзыв', callback_data: 'leave_review' }]
+                ]
+            };
 
             bot.sendMessage(chatId, reviewList, { reply_markup: reviewKeyboard });
             bot.answerCallbackQuery(query.id);
@@ -183,7 +186,7 @@ bot.on('callback_query', (query) => {
             }
 
             const appText = `
-Заявка:
+Новая заявка на сервер Fox SMP:
 - От кого: ${stateSubmit.username}
 - Возраст: ${stateSubmit.age}
 - Пол: ${stateSubmit.gender}
@@ -194,10 +197,11 @@ bot.on('callback_query', (query) => {
             bot.sendMessage(FORUM_CHAT_ID, appText, { message_thread_id: THREAD_ID })
                 .then(sentMsg => {
                     const msgId = sentMsg.message_id;
-                    const approvalButtons = {                        inline_keyboard: [
+                    const approvalButtons = {
+                        inline_keyboard: [
                             [
-                                { text: '✅ Принять', callback_data: `approve_${chatId}` }, // ✅
-                                { text: '❌ Отклонить', callback_data: `reject_${chatId}` } // ✅
+                                { text: '✅ Принять', callback_data: `approve_${chatId}` },
+                                { text: '❌ Отклонить', callback_data: `reject_${chatId}` }
                             ]
                         ]
                     };
@@ -243,7 +247,8 @@ bot.on('callback_query', (query) => {
                 const [action, targetIdStr] = data.split('_');
                 const targetUserId = parseInt(targetIdStr);
 
-                if (!ADMIN_IDS.has(userId)) {                    bot.answerCallbackQuery(query.id, { text: '❌ У вас нет прав.', show_alert: true });
+                if (!ADMIN_IDS.has(userId)) {
+                    bot.answerCallbackQuery(query.id, { text: '❌ У вас нет прав.', show_alert: true });
                     return;
                 }
 
@@ -253,7 +258,7 @@ bot.on('callback_query', (query) => {
                 } else if (action === 'reject') {
                     const keyboard = {
                         inline_keyboard: [
-                            [{ text: '🔄 Подать снова', callback_data: 'retry_apply' }] // ✅
+                            [{ text: '🔄 Подать снова', callback_data: 'retry_apply' }]
                         ]
                     };
                     bot.sendMessage(targetUserId, '❌ Ваша заявка отклонена. Если хотите — подайте снова.', {
@@ -292,7 +297,8 @@ bot.on('message', (msg) => {
             bot.sendMessage(chatId, 'Теперь напишите краткий комментарий:');
         } else {
             bot.sendMessage(chatId, 'Введите число от 1 до 5.');
-        }    } else if (state.step === 'review_comment') {
+        }
+    } else if (state.step === 'review_comment') {
         const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
         reviews.push({
             user: username,
@@ -337,11 +343,17 @@ bot.on('message', (msg) => {
         case 'nickname':
             state.nickname = text;
             state.step = 'about';
-            bot.sendMessage(chatId, 'Расскажите о себе (кратко):');
+            bot.sendMessage(chatId, 'Расскажите о себе (минимум 24 символа):');
             break;
 
         case 'about':
-            state.about = text;            state.username = from.username ? `@${from.username}` : from.first_name;
+            if (text.length < 24) {
+                bot.sendMessage(chatId, '❌ Слишком короткое описание. Напишите минимум 24 символа.');
+                return;
+            }
+
+            state.about = text;
+            state.username = from.username ? `@${from.username}` : from.first_name;
 
             const preview = `
 Вот ваша заявка:
@@ -357,8 +369,8 @@ bot.on('message', (msg) => {
             const keyboard = {
                 inline_keyboard: [
                     [
-                        { text: '✅ Да', callback_data: 'confirm_submit' }, // ✅
-                        { text: '❌ Изменить', callback_data: 'restart_apply' } // ✅
+                        { text: '✅ Да', callback_data: 'confirm_submit' },
+                        { text: '❌ Изменить', callback_data: 'restart_apply' }
                     ]
                 ]
             };
