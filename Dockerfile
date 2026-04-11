@@ -24,7 +24,7 @@ RUN echo '#!/bin/sh' > /usr/local/bin/entrypoint.sh && \
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
-# Копируем package.json и package-lock.json (если есть)
+# Копируем только package.json и package-lock.json
 COPY package*.json ./
 
 # Устанавливаем зависимости
@@ -33,7 +33,7 @@ RUN npm ci --only=production || npm install --only=production
 # Очищаем npm-кэш
 RUN npm cache clean --force || true
 
-# Копируем остальные файлы
+# Копируем остальные файлы, кроме .env
 COPY . .
 
 EXPOSE 3000
