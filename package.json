@@ -9,7 +9,6 @@
   "dependencies": {
     "node-telegram-bot-api": "^0.65.1",
     "dotenv": "^16.4.5",
-    "minecraft-server-util": "^5.4.4",
     "rcon-client": "^4.2.5"
   }
 }
