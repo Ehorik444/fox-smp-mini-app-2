@@ -40,12 +40,12 @@ const getAverageRating = () => {
 const mainMenuKeyboard = {
     inline_keyboard: [
         [
-            { text: '📝 Подать заявку', callback_ 'apply_start' },
-            { text: '⭐ Оценить сервер', callback_ 'vote_start' }
+            { text: '📝 Подать заявку', callback_data: 'apply_start' },
+            { text: '⭐ Оценить сервер', callback_data: 'vote_start' }
         ],
         [
             { text: '📊 Статистика', callback_data: 'status_show' },
-            { text: '📖 Отзывы', callback_ 'reviews_show' }
+            { text: '📖 Отзывы', callback_data: 'reviews_show' }
         ],
         [            { text: '📜 Правила сервера', url: 'https://docs.google.com/document/d/14Bonb5QdGe6vyxn6lqCneB8foplgdlK8yBwuvVV0kQY/edit?usp=sharing' }
         ]
@@ -98,11 +98,11 @@ bot.on('callback_query', (query) => {
 
         case 'vote_start':            const voteKeyboard = {
                 inline_keyboard: [
-                    [{ text: '⭐', callback_ 'vote_1' }],
-                    [{ text: '⭐⭐', callback_ 'vote_2' }],
-                    [{ text: '⭐⭐⭐', callback_ 'vote_3' }],
-                    [{ text: '⭐⭐⭐⭐', callback_ 'vote_4' }],
-                    [{ text: '⭐⭐⭐⭐⭐', callback_ 'vote_5' }]
+                    [{ text: '⭐', callback_data: 'vote_1' }],
+                    [{ text: '⭐⭐', callback_data: 'vote_2' }],
+                    [{ text: '⭐⭐⭐', callback_data: 'vote_3' }],
+                    [{ text: '⭐⭐⭐⭐', callback_data: 'vote_4' }],
+                    [{ text: '⭐⭐⭐⭐⭐', callback_data: 'vote_5' }]
                 ]
             };
             bot.sendMessage(chatId, '⭐ Поставьте оценку серверу Fox SMP:', { reply_markup: voteKeyboard });
@@ -201,8 +201,8 @@ bot.on('callback_query', (query) => {
                     const approvalButtons = {
                         inline_keyboard: [
                             [
-                                { text: '✅ Принять', callback_ `approve_${chatId}_${stateSubmit.nickname}` },
-                                { text: '❌ Отклонить', callback_ `reject_${chatId}` }
+                                { text: '✅ Принять', callback_data: `approve_${chatId}_${stateSubmit.nickname}` },
+                                { text: '❌ Отклонить', callback_data: `reject_${chatId}` }
                             ]
                         ]
                     };
@@ -271,6 +271,10 @@ bot.on('callback_query', (query) => {
                     })
                     .then(response => {
                         console.log(`[RCON] Ответ: ${response}`);
+                        // ✅ Выводим в консоль сообщение о добавлении в вайтлист
+                        const adminUsername = from.username ? `@${from.username}` : from.first_name;
+                        console.log(`[WHITELIST] Игрок ${targetNickname} добавлен в вайтлист пользователем ${adminUsername} (ID: ${userId})`);
+
                         // Уведомляем пользователя
                         bot.sendMessage(targetUserId, `🎉 Ваша заявка одобрена!\n✅ Ник \`${targetNickname}\` добавлен в вайтлист.\nЗаходите на сервер: \`fox-smp.com:20073\``, { parse_mode: 'Markdown' });
                         bot.answerCallbackQuery(query.id, { text: `✅ Игрок ${targetNickname} добавлен в вайтлист.`, show_alert: true });
@@ -288,11 +292,11 @@ bot.on('callback_query', (query) => {
             } else if (data.startsWith('reject_')) {
                 const [_, targetIdStr] = data.split('_');
                 const targetUserId = parseInt(targetIdStr);
-
                 if (!ADMIN_IDS.has(userId)) {
                     bot.answerCallbackQuery(query.id, { text: '❌ У вас нет прав.', show_alert: true });
                     return;
                 }
+
                 const keyboard = {
                     inline_keyboard: [
                         [{ text: '🔄 Подать снова', callback_data: 'retry_apply' }]
@@ -337,11 +341,11 @@ bot.on('message', (msg) => {
         } else {
             bot.sendMessage(chatId, 'Введите число от 1 до 5.');
         }
-    } else if (state.step === 'review_comment') {
-        const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
+    } else if (state.step === 'review_comment') {        const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
         reviews.push({
             user: username,
-            rating: state.rating,            comment: text
+            rating: state.rating,
+            comment: text
         });
         bot.sendMessage(chatId, `✅ Спасибо за отзыв!\nВаша оценка: ${state.rating}⭐`);
         delete userStates[userId];
@@ -386,11 +390,11 @@ bot.on('message', (msg) => {
 
         case 'about':
             if (text.length < 24) {
-                bot.sendMessage(chatId, '❌ Слишком короткое описание. Напишите минимум 24 символа.');
-                return;
+                bot.sendMessage(chatId, '❌ Слишком короткое описание. Напишите минимум 24 символа.');                return;
             }
 
-            state.about = text;            state.username = from.username ? `@${from.username}` : from.first_name;
+            state.about = text;
+            state.username = from.username ? `@${from.username}` : from.first_name;
 
             const preview = `
 Вот ваша заявка:
@@ -406,8 +410,8 @@ bot.on('message', (msg) => {
             const keyboard = {
                 inline_keyboard: [
                     [
-                        { text: '✅ Да', callback_ 'confirm_submit' },
-                        { text: '❌ Изменить', callback_ 'restart_apply' }
+                        { text: '✅ Да', callback_data: 'confirm_submit' },
+                        { text: '❌ Изменить', callback_data: 'restart_apply' }
                     ]
                 ]
             };
