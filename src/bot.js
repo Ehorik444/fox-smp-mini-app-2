@@ -1,6 +1,6 @@
 const TelegramBot = require('node-telegram-bot-api');
 const msu = require('minecraft-server-util');
-const Rcon = require('rcon-client').Rcon; // Подключаем RCON
+const Rcon = require('rcon-client').Rcon;
 require('dotenv').config();
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -99,7 +99,7 @@ bot.on('callback_query', (query) => {
         case 'vote_start':            const voteKeyboard = {
                 inline_keyboard: [
                     [{ text: '⭐', callback_ 'vote_1' }],
-                    [{ text: '⭐⭐', callback_data: 'vote_2' }],
+                    [{ text: '⭐⭐', callback_ 'vote_2' }],
                     [{ text: '⭐⭐⭐', callback_ 'vote_3' }],
                     [{ text: '⭐⭐⭐⭐', callback_ 'vote_4' }],
                     [{ text: '⭐⭐⭐⭐⭐', callback_ 'vote_5' }]
@@ -201,7 +201,7 @@ bot.on('callback_query', (query) => {
                     const approvalButtons = {
                         inline_keyboard: [
                             [
-                                { text: '✅ Принять', callback_data: `approve_${chatId}_${stateSubmit.nickname}` }, // ✅ Передаём ник
+                                { text: '✅ Принять', callback_ `approve_${chatId}_${stateSubmit.nickname}` },
                                 { text: '❌ Отклонить', callback_ `reject_${chatId}` }
                             ]
                         ]
@@ -244,7 +244,11 @@ bot.on('callback_query', (query) => {
 
         // Одобрение/отклонение
         default:            if (data.startsWith('approve_')) {
-                const [_, targetIdStr, targetNickname] = data.split('_');
+                const parts = data.split('_');
+                const action = parts[0]; // "approve"
+                const targetIdStr = parts[1];
+                const targetNickname = parts.slice(2).join('_'); // на случай, если ник содержит "_"
+
                 const targetUserId = parseInt(targetIdStr);
 
                 if (!ADMIN_IDS.has(userId)) {
@@ -261,9 +265,12 @@ bot.on('callback_query', (query) => {
                 const rcon = new Rcon(RCON_CONFIG);
 
                 rcon.connect()
-                    .then(() => rcon.send(`whitelist add ${targetNickname}`))
+                    .then(() => {
+                        console.log(`[RCON] Отправляем whitelist add ${targetNickname}`);
+                        return rcon.send(`whitelist add ${targetNickname}`);
+                    })
                     .then(response => {
-                        console.log(`[RCON] whitelist add ${targetNickname}: ${response}`);
+                        console.log(`[RCON] Ответ: ${response}`);
                         // Уведомляем пользователя
                         bot.sendMessage(targetUserId, `🎉 Ваша заявка одобрена!\n✅ Ник \`${targetNickname}\` добавлен в вайтлист.\nЗаходите на сервер: \`fox-smp.com:20073\``, { parse_mode: 'Markdown' });
                         bot.answerCallbackQuery(query.id, { text: `✅ Игрок ${targetNickname} добавлен в вайтлист.`, show_alert: true });
@@ -286,13 +293,13 @@ bot.on('callback_query', (query) => {
                     bot.answerCallbackQuery(query.id, { text: '❌ У вас нет прав.', show_alert: true });
                     return;
                 }
-
                 const keyboard = {
                     inline_keyboard: [
                         [{ text: '🔄 Подать снова', callback_data: 'retry_apply' }]
                     ]
                 };
-                bot.sendMessage(targetUserId, '❌ Ваша заявка отклонена. Если хотите — подайте снова.', {                    reply_markup: keyboard
+                bot.sendMessage(targetUserId, '❌ Ваша заявка отклонена. Если хотите — подайте снова.', {
+                    reply_markup: keyboard
                 });
                 bot.answerCallbackQuery(query.id, { text: '❌ Отклонено', show_alert: true });
             }
@@ -334,13 +341,13 @@ bot.on('message', (msg) => {
         const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
         reviews.push({
             user: username,
-            rating: state.rating,
-            comment: text
+            rating: state.rating,            comment: text
         });
         bot.sendMessage(chatId, `✅ Спасибо за отзыв!\nВаша оценка: ${state.rating}⭐`);
         delete userStates[userId];
     }
 });
+
 // Обработка формы заявки
 bot.on('message', (msg) => {
     const chatId = msg.chat.id;
@@ -383,14 +390,14 @@ bot.on('message', (msg) => {
                 return;
             }
 
-            state.about = text;
-            state.username = from.username ? `@${from.username}` : from.first_name;
+            state.about = text;            state.username = from.username ? `@${from.username}` : from.first_name;
 
             const preview = `
 Вот ваша заявка:
 - От кого: ${state.username}
 - Возраст: ${state.age}
-- Пол: ${state.gender}- Ник: ${state.nickname}
+- Пол: ${state.gender}
+- Ник: ${state.nickname}
 - О себе: ${state.about}
 
 Всё верно? Нажмите ✅ Да или ❌ Изменить.
