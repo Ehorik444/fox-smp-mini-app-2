@@ -3,6 +3,13 @@ const msu = require('minecraft-server-util');
 const Rcon = require('rcon-client').Rcon;
 require('dotenv').config();
 
+// 🔑 Добавим отладку токена
+console.log('=== DEBUG START ===');
+console.log('TELEGRAM_BOT_TOKEN =', process.env.TELEGRAM_BOT_TOKEN);
+console.log('Token type =', typeof process.env.TELEGRAM_BOT_TOKEN);
+console.log('Token length =', process.env.TELEGRAM_BOT_TOKEN?.length || 'undefined');
+console.log('=====================');
+
 const token = process.env.TELEGRAM_BOT_TOKEN;
 if (!token) {
     console.error('[ERROR] TELEGRAM_BOT_TOKEN не указан в .env');
@@ -40,14 +47,14 @@ const getAverageRating = () => {
 const mainMenuKeyboard = {
     inline_keyboard: [
         [
-            { text: '📝 Подать заявку', callback_data: 'apply_start' },
-            { text: '⭐ Оценить сервер', callback_data: 'vote_start' }
+            { text: '📝 Подать заявку', callback_data: 'apply_start' },            { text: '⭐ Оценить сервер', callback_data: 'vote_start' }
         ],
         [
             { text: '📊 Статистика', callback_data: 'status_show' },
             { text: '📖 Отзывы', callback_data: 'reviews_show' }
         ],
-        [            { text: '📜 Правила сервера', url: 'https://docs.google.com/document/d/14Bonb5QdGe6vyxn6lqCneB8foplgdlK8yBwuvVV0kQY/edit?usp=sharing' }
+        [
+            { text: '📜 Правила сервера', url: 'https://docs.google.com/document/d/14Bonb5QdGe6vyxn6lqCneB8foplgdlK8yBwuvVV0kQY/edit?usp=sharing' }
         ]
     ]
 };
@@ -89,14 +96,14 @@ bot.on('callback_query', (query) => {
                     userStates[chatId] = { step: 'age' };
                     bot.sendMessage(chatId, 'Введите ваш возраст:');
                 });
-            } else {
-                userStates[chatId] = { step: 'age' };
+            } else {                userStates[chatId] = { step: 'age' };
                 bot.sendMessage(chatId, 'Введите ваш возраст:');
             }
             bot.answerCallbackQuery(query.id);
             break;
 
-        case 'vote_start':            const voteKeyboard = {
+        case 'vote_start':
+            const voteKeyboard = {
                 inline_keyboard: [
                     [{ text: '⭐', callback_data: 'vote_1' }],
                     [{ text: '⭐⭐', callback_data: 'vote_2' }],
@@ -138,7 +145,6 @@ bot.on('callback_query', (query) => {
             const avgRating = getAverageRating();
             let reviewList = `📖 Отзывы о сервере Fox SMP:\n`;
             reviewList += `⭐ Средняя оценка: ${avgRating} из 5\n\n`;
-
             if (reviews.length === 0) {
                 reviewList = 'Пока нет отзывов. Будьте первым!';
             } else {
@@ -188,8 +194,7 @@ bot.on('callback_query', (query) => {
             }
 
             const appText = `
-Новая заявка на сервер Fox SMP:
-- От кого: ${stateSubmit.username}
+Новая заявка на сервер Fox SMP:- От кого: ${stateSubmit.username}
 - Возраст: ${stateSubmit.age}
 - Пол: ${stateSubmit.gender}
 - Ник: ${stateSubmit.nickname}
@@ -238,12 +243,12 @@ bot.on('callback_query', (query) => {
             bot.editMessageText('Введите возраст:', {
                 chat_id: chatId,
                 message_id: query.message.message_id
-            });
-            bot.answerCallbackQuery(query.id);
+            });            bot.answerCallbackQuery(query.id);
             break;
 
         // Одобрение/отклонение
-        default:            if (data.startsWith('approve_')) {
+        default:
+            if (data.startsWith('approve_')) {
                 const parts = data.split('_');
                 const action = parts[0]; // "approve"
                 const targetIdStr = parts[1];
@@ -288,7 +293,6 @@ bot.on('callback_query', (query) => {
                     .finally(() => {
                         rcon.end(); // Закрываем соединение
                     });
-
             } else if (data.startsWith('reject_')) {
                 const [_, targetIdStr] = data.split('_');
                 const targetUserId = parseInt(targetIdStr);
@@ -337,11 +341,11 @@ bot.on('message', (msg) => {
         if (rating >= 1 && rating <= 5) {
             state.rating = rating;
             state.step = 'review_comment';
-            bot.sendMessage(chatId, 'Теперь напишите краткий комментарий:');
-        } else {
+            bot.sendMessage(chatId, 'Теперь напишите краткий комментарий:');        } else {
             bot.sendMessage(chatId, 'Введите число от 1 до 5.');
         }
-    } else if (state.step === 'review_comment') {        const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
+    } else if (state.step === 'review_comment') {
+        const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
         reviews.push({
             user: username,
             rating: state.rating,
@@ -387,10 +391,10 @@ bot.on('message', (msg) => {
             state.step = 'about';
             bot.sendMessage(chatId, 'Расскажите о себе (минимум 24 символа):');
             break;
-
         case 'about':
             if (text.length < 24) {
-                bot.sendMessage(chatId, '❌ Слишком короткое описание. Напишите минимум 24 символа.');                return;
+                bot.sendMessage(chatId, '❌ Слишком короткое описание. Напишите минимум 24 символа.');
+                return;
             }
 
             state.about = text;
