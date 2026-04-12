@@ -1,4 +1,4 @@
-console.log("=== PRO BOT (FIXED STABLE VERSION) ===");
+console.log("=== PRO BOT (HARD FIX STABLE VERSION) ===");
 
 require('dotenv').config();
 const fs = require('fs');
@@ -7,11 +7,13 @@ const TelegramBot = require('node-telegram-bot-api');
 const { Rcon } = require('rcon-client');
 
 // ================= GLOBAL PROTECTION =================
-process.on('uncaughtException', (err) => console.error('UNCAUGHT:', err));
-process.on('unhandledRejection', (err) => console.error('UNHANDLED:', err));
+process.on('uncaughtException', console.error);
+process.on('unhandledRejection', console.error);
 
 // ================= DB =================
 const DB_FILE = path.join(__dirname, 'applications.json');
+
+let db = loadDB();
 
 function loadDB() {
   try {
@@ -30,8 +32,6 @@ function saveDB() {
   }
 }
 
-let db = loadDB();
-
 // ================= BOT =================
 const bot = new TelegramBot(process.env.BOT_TOKEN, {
   polling: {
@@ -41,29 +41,13 @@ const bot = new TelegramBot(process.env.BOT_TOKEN, {
   }
 });
 
-// ================= POLLING =================
-async function startPollingSafe() {
-  try {
-    console.log("🚀 Polling started");
-    await bot.startPolling();
-  } catch (e) {
-    console.error("Polling start error:", e.message);
-    setTimeout(startPollingSafe, 5000);
-  }
-}
-
-bot.on('polling_error', (err) => {
-  console.error('Polling error:', err.message);
-  setTimeout(startPollingSafe, 5000);
-});
-
 // ================= CONFIG =================
 const FORUM_CHAT_ID = -1003255144076;
 const FORUM_TOPIC_ID = 3567;
 
 const ADMINS = [5372937661, 2121418969];
 
-// ================= FSM =================
+// ================= STATES =================
 const STATES = {
   AGE: "AGE",
   MC_NICK: "MC_NICK",
@@ -78,8 +62,7 @@ let rejectTargets = {};
 function formatDate(ts = Date.now()) {
   const d = new Date(ts);
   const pad = (n) => n.toString().padStart(2, '0');
-
-  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}, ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()}, ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 async function safeSend(chatId, text, opts = {}) {
@@ -102,26 +85,7 @@ async function safeEdit(text, app) {
   }
 }
 
-// ================= RCON =================
-async function addToWhitelist(nick) {
-  try {
-    const rcon = await Rcon.connect({
-      host: process.env.RCON_HOST,
-      port: Number(process.env.RCON_PORT),
-      password: process.env.RCON_PASSWORD,
-      timeout: 5000
-    });
-
-    await rcon.send(`whitelist add ${nick}`);
-    await rcon.end();
-
-    console.log(`✅ ${nick} added`);
-  } catch (e) {
-    console.error("RCON ERROR:", e.message);
-  }
-}
-
-// ================= DB FIXED =================
+// ================= DB SAFE =================
 function getUser(chatId) {
   if (!db[chatId]) {
     db[chatId] = {
@@ -129,14 +93,13 @@ function getUser(chatId) {
       status: 'draft',
       state: STATES.AGE,
       processing: false,
-      locked: false,   // 🔥 FIX
+      _locked: false,
       created_at: Date.now()
     };
   }
   return db[chatId];
 }
 
-// 🔥 FIXED SAFE UPDATE (no overwrite bug)
 function updateUser(chatId, data) {
   db[chatId] = {
     ...db[chatId],
@@ -157,60 +120,31 @@ bot.onText(/\/start/, (msg) => {
     username,
     status: 'draft',
     state: STATES.AGE,
-    locked: false
+    _locked: false,
+    processing: false
   });
 
   safeSend(chatId, "📝 Заявка начата!\nВведите возраст:");
 });
 
-// ================= MESSAGE =================
+// ================= MESSAGE (FIXED CORE LOGIC) =================
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
-  if (!text || text.startsWith('/')) return;
+  if (!text) return;
+  if (text.startsWith('/')) return;
 
   const user = getUser(chatId);
 
-  // ===== REJECT FLOW =====
-  if (rejectTargets[msg.from.id] && ADMINS.includes(msg.from.id)) {
-    const target = rejectTargets[msg.from.id];
-    delete rejectTargets[msg.from.id];
-
-    const app = getUser(target);
-
-    updateUser(target, {
-      status: 'rejected',
-      reason: text,
-      rejected_by: msg.from.id,
-      rejected_at: Date.now(),
-      locked: false
-    });
-
-    const adminName = msg.from.username
-      ? `@${msg.from.username}`
-      : msg.from.first_name;
-
-    const logText = `
-❌ ОТКЛОНЕНА
-
-👤 Админ: ${adminName}
-🎮 ${app.mc_nick}
-📌 ${text}
-🕒 ${formatDate()}
-`;
-
-    await safeSend(target, `❌ Отклонено\n\nПричина: ${text}`);
-    await safeEdit(logText, app);
-
-    return;
-  }
-
-  if (user.status !== 'draft' || user.processing) return;
-
-  updateUser(chatId, { processing: true });
+  // 🔥 HARD LOCK (FIX MAIN BUG)
+  if (user._locked) return;
+  updateUser(chatId, { _locked: true });
 
   try {
+
+    if (user.status !== 'draft') return;
+
     switch (user.state) {
 
       case STATES.AGE:
@@ -252,23 +186,23 @@ bot.on('message', async (msg) => {
           }
         });
 
-        if (!sent) return;
-
-        updateUser(chatId, {
-          message_id: sent.message_id,
-          status: 'pending',
-          locked: false
-        });
+        if (sent) {
+          updateUser(chatId, {
+            message_id: sent.message_id,
+            status: 'pending'
+          });
+        }
 
         return safeSend(chatId, "✅ Заявка отправлена!");
     }
 
   } finally {
-    updateUser(chatId, { processing: false });
+    // 🔥 ALWAYS UNLOCK (FIX FREEZE / DUPLICATE ISSUE)
+    updateUser(chatId, { _locked: false, processing: false });
   }
 });
 
-// ================= CALLBACK (FIXED CORE BUG) =================
+// ================= CALLBACK =================
 bot.on('callback_query', async (q) => {
   const adminId = q.from.id;
   const [action, chatIdStr] = q.data.split(':');
@@ -283,27 +217,28 @@ bot.on('callback_query', async (q) => {
 
   const app = getUser(chatId);
 
-  // 🔥 FIX: защита от дублей
-  if (app.locked) {
-    return bot.answerCallbackQuery(q.id, { text: "Уже обрабатывается" });
-  }
-
   if (!app || app.status !== 'pending') {
     return bot.answerCallbackQuery(q.id, { text: "Уже обработано" });
   }
 
-  if (action === "accept") {
+  // 🔥 BLOCK DOUBLE CLICK
+  if (app._locked) {
+    return bot.answerCallbackQuery(q.id, { text: "Уже обрабатывается" });
+  }
 
-    updateUser(chatId, { locked: true });
+  updateUser(chatId, { _locked: true });
 
-    try {
+  try {
+
+    if (action === "accept") {
+
       await addToWhitelist(app.mc_nick);
 
       updateUser(chatId, {
         status: 'accepted',
         accepted_by: adminId,
         accepted_at: Date.now(),
-        locked: false
+        _locked: false
       });
 
       const adminName = q.from.username
@@ -322,20 +257,40 @@ bot.on('callback_query', async (q) => {
       await safeEdit(logText, app);
 
       return bot.answerCallbackQuery(q.id, { text: "OK" });
-
-    } catch (e) {
-      updateUser(chatId, { locked: false });
-      throw e;
     }
-  }
 
-  if (action === "reject") {
-    rejectTargets[adminId] = chatId;
-    return bot.answerCallbackQuery(q.id);
+    if (action === "reject") {
+      rejectTargets[adminId] = chatId;
+      updateUser(chatId, { _locked: false });
+      return bot.answerCallbackQuery(q.id);
+    }
+
+  } catch (e) {
+    updateUser(chatId, { _locked: false });
+    console.error(e);
   }
 });
 
-// ================= START =================
-startPollingSafe();
+// ================= RCON =================
+async function addToWhitelist(nick) {
+  try {
+    const rcon = await Rcon.connect({
+      host: process.env.RCON_HOST,
+      port: Number(process.env.RCON_PORT),
+      password: process.env.RCON_PASSWORD,
+      timeout: 5000
+    });
 
-console.log("✅ BOT STARTED (FIXED)");
+    await rcon.send(`whitelist add ${nick}`);
+    await rcon.end();
+
+    console.log(`✅ ${nick} added`);
+  } catch (e) {
+    console.error("RCON ERROR:", e.message);
+  }
+}
+
+// ================= START =================
+bot.startPolling();
+
+console.log("✅ BOT RUNNING (FIXED HARD VERSION)");
