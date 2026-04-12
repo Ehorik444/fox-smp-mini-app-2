@@ -47,7 +47,7 @@ const mainMenuKeyboard = {
     ]
 };
 
-// /startbot.onText(/\/start/, (msg) => {
+// ✅ Исправленный обработчик /startbot.onText(/\/start/, (msg) => {
     bot.sendMessage(
         msg.chat.id,
         '🦊 Fox SMP — официальный бот\nВыберите действие:',
@@ -96,7 +96,7 @@ bot.on('callback_query', (query) => {
             bot.answerCallbackQuery(query.id);
             break;
 
-        // Подтверждение заявки        case 'confirm_submit':
+        // ✅ Перемещённый case 'confirm_submit' внутрь switch        case 'confirm_submit':
             const stateSubmit = userStates[chatId];
             if (!stateSubmit) {
                 bot.answerCallbackQuery(query.id, { text: '❌ Ошибка: данные утеряны.', show_alert: true });
@@ -172,6 +172,17 @@ bot.on('callback_query', (query) => {
             bot.answerCallbackQuery(query.id);
             break;
 
+        case 'retry_apply':
+            if (submittedApplicants.has(chatId)) {
+                bot.sendMessage(chatId, '❌ Вы уже подавали заявку ранее. Повторная подача запрещена.');
+                bot.answerCallbackQuery(query.id, { text: '❌ Повторная подача запрещена.', show_alert: true });
+                return;
+            }
+            userStates[chatId] = { step: 'age' };
+            bot.sendMessage(chatId, 'Введите возраст:');
+            bot.answerCallbackQuery(query.id);
+            break;
+
         // Одобрение/отклонение
         default:
             if (data.startsWith('approve_')) {
@@ -183,8 +194,7 @@ bot.on('callback_query', (query) => {
                 const targetUserId = parseInt(targetIdStr);
 
                 if (!ADMIN_IDS.has(userId)) {
-                    bot.answerCallbackQuery(query.id, { text: '❌ У вас нет прав.', show_alert: true });
-                    return;
+                    bot.answerCallbackQuery(query.id, { text: '❌ У вас нет прав.', show_alert: true });                    return;
                 }
 
                 if (!targetNickname) {
@@ -233,8 +243,7 @@ bot.on('callback_query', (query) => {
                     ]
                 };
                 bot.sendMessage(targetUserId, '❌ Ваша заявка отклонена. Если хотите — подайте снова.', {
-                    reply_markup: keyboard
-                });
+                    reply_markup: keyboard                });
                 bot.answerCallbackQuery(query.id, { text: '❌ Отклонено', show_alert: true });
             }
 
@@ -243,16 +252,6 @@ bot.on('callback_query', (query) => {
                 chat_id: query.message.chat.id,
                 message_id: query.message.message_id
             }).catch(() => {});
-            break;
-        case 'retry_apply':
-            if (submittedApplicants.has(userId)) {
-                bot.sendMessage(userId, '❌ Вы уже подавали заявку ранее. Повторная подача запрещена.');
-                bot.answerCallbackQuery(query.id, { text: '❌ Повторная подача запрещена.', show_alert: true });
-                return;
-            }
-            userStates[userId] = { step: 'age' };
-            bot.sendMessage(userId, 'Введите возраст:');
-            bot.answerCallbackQuery(query.id);
             break;
     }
 });
@@ -292,8 +291,8 @@ bot.on('message', (msg) => {
             state.step = 'friend_nickname';
             bot.sendMessage(chatId, 'Введите ник друга, который вас пригласил (или "-" если никто):');
             break;
-        // 🔑 Новый шаг: ник друга
-        case 'friend_nickname':
+
+        // 🔑 Новый шаг: ник друга        case 'friend_nickname':
             state.friend_nickname = text.trim() === '-' ? 'Не указан' : text;
             state.step = 'about';
             bot.sendMessage(chatId, 'Расскажите о себе (минимум 24 символа):');
