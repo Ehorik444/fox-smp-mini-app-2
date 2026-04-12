@@ -39,7 +39,7 @@ const submittedApplicants = new Set();
 const mainMenuKeyboard = {
     inline_keyboard: [
         [
-            { text: '📝 Подать заявку', callback_data: 'apply_start' } // ✅ Исправлено
+            { text: '📝 Подать заявку', callback_ 'apply_start' } // ✅ Исправлено
         ],
         [
             { text: '📜 Правила сервера', url: 'https://docs.google.com/document/d/14Bonb5QdGe6vyxn6lqCneB8foplgdlK8yBwuvVV0kQY/edit?usp=sharing' }
@@ -54,7 +54,9 @@ const mainMenuKeyboard = {
         { reply_markup: mainMenuKeyboard }
     ).then(sent => {
         userStates[msg.chat.id] = { menuMessageId: sent.message_id };
-    }); // ❌ Была лишняя скобка } здесь — удалена ✅
+    }).catch((error) => {
+        console.error("Ошибка при отправке сообщения /start:", error);
+    });
 });
 
 // Обработка кнопок меню
@@ -95,8 +97,8 @@ bot.on('callback_query', (query) => {
             }
             bot.answerCallbackQuery(query.id);
             break;
-
-        // ✅ Перемещённый case 'confirm_submit' внутрь switch        case 'confirm_submit':
+        // ✅ Перемещённый case 'confirm_submit' внутрь switch
+        case 'confirm_submit':
             const stateSubmit = userStates[chatId];
             if (!stateSubmit) {
                 bot.answerCallbackQuery(query.id, { text: '❌ Ошибка: данные утеряны.', show_alert: true });
@@ -126,8 +128,8 @@ bot.on('callback_query', (query) => {
                     const approvalButtons = {
                         inline_keyboard: [
                             [
-                                { text: '✅ Принять', callback_data: `approve_${chatId}_${stateSubmit.nickname}` },
-                                { text: '❌ Отклонить', callback_data: `reject_${chatId}` }
+                                { text: '✅ Принять', callback_ `approve_${chatId}_${stateSubmit.nickname}` },
+                                { text: '❌ Отклонить', callback_ `reject_${chatId}` }
                             ]
                         ]
                     };
@@ -143,9 +145,9 @@ bot.on('callback_query', (query) => {
                             message_thread_id: THREAD_ID
                         }).catch(() => {});
                     });
-
                     bot.editMessageText('✅ Заявка отправлена. Админы скоро её рассмотрят.', {
-                        chat_id: chatId,                        message_id: query.message.message_id
+                        chat_id: chatId,
+                        message_id: query.message.message_id
                     });
                 })
                 .catch(err => {
@@ -192,9 +194,9 @@ bot.on('callback_query', (query) => {
                 const targetNickname = parts.slice(2).join('_'); // на случай, если ник содержит "_"
 
                 const targetUserId = parseInt(targetIdStr);
-
                 if (!ADMIN_IDS.has(userId)) {
-                    bot.answerCallbackQuery(query.id, { text: '❌ У вас нет прав.', show_alert: true });                    return;
+                    bot.answerCallbackQuery(query.id, { text: '❌ У вас нет прав.', show_alert: true });
+                    return;
                 }
 
                 if (!targetNickname) {
@@ -241,9 +243,9 @@ bot.on('callback_query', (query) => {
                     inline_keyboard: [
                         [{ text: '🔄 Подать снова', callback_data: 'retry_apply' }]
                     ]
-                };
-                bot.sendMessage(targetUserId, '❌ Ваша заявка отклонена. Если хотите — подайте снова.', {
-                    reply_markup: keyboard                });
+                };                bot.sendMessage(targetUserId, '❌ Ваша заявка отклонена. Если хотите — подайте снова.', {
+                    reply_markup: keyboard
+                });
                 bot.answerCallbackQuery(query.id, { text: '❌ Отклонено', show_alert: true });
             }
 
@@ -291,8 +293,8 @@ bot.on('message', (msg) => {
             state.step = 'friend_nickname';
             bot.sendMessage(chatId, 'Введите ник друга, который вас пригласил (или "-" если никто):');
             break;
-
-        // 🔑 Новый шаг: ник друга        case 'friend_nickname':
+        // 🔑 Новый шаг: ник друга
+        case 'friend_nickname':
             state.friend_nickname = text.trim() === '-' ? 'Не указан' : text;
             state.step = 'about';
             bot.sendMessage(chatId, 'Расскажите о себе (минимум 24 символа):');
@@ -322,8 +324,8 @@ bot.on('message', (msg) => {
             const keyboard = {
                 inline_keyboard: [
                     [
-                        { text: '✅ Да', callback_data: 'confirm_submit' },
-                        { text: '❌ Изменить', callback_data: 'restart_apply' } // ✅ Исправлено
+                        { text: '✅ Да', callback_ 'confirm_submit' },
+                        { text: '❌ Изменить', callback_ 'restart_apply' } // ✅ Исправлено
                     ]
                 ]
             };
