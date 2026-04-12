@@ -54,7 +54,7 @@ const mainMenuKeyboard = {
         { reply_markup: mainMenuKeyboard }
     ).then(sent => {
         userStates[msg.chat.id] = { menuMessageId: sent.message_id };
-    });
+    }); // ❌ Была лишняя скобка } здесь — удалена ✅
 });
 
 // Обработка кнопок меню
