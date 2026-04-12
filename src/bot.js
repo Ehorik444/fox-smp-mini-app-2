@@ -1,13 +1,26 @@
-console.log("=== NEW VERSION ===");
+console.log("=== NEW VERSION (JSON STORAGE) ===");
+
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 const TelegramBot = require('node-telegram-bot-api');
 const { Rcon } = require('rcon-client');
-const { Pool } = require('pg');
 
-// 🔥 УБИВАЕМ любые SSL из окружения
-delete process.env.PGSSLMODE;
-delete process.env.DATABASE_URL;
+// ===== FILE STORAGE =====
+const DB_FILE = path.join(__dirname, 'applications.json');
 
+function loadDB() {
+  if (!fs.existsSync(DB_FILE)) return {};
+  return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+}
+
+function saveDB() {
+  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+}
+
+let db = loadDB();
+
+// ===== BOT =====
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
 // ===== CONFIG =====
@@ -17,10 +30,24 @@ const LOG_TOPIC_ID = 28258;
 
 const ADMINS = [5372937661, 2121418969];
 
-// ===== DB (ЖЁСТКИЙ FIX SSL) =====
-const pool = new Pool({
-  connectionString: `postgresql://${process.env.PGUSER}:${process.env.PGPASSWORD}@${process.env.PGHOST}:${process.env.PGPORT}/${process.env.PGDATABASE}?sslmode=disable`
-});
+// ===== HELPERS =====
+function getUser(chatId) {
+  if (!db[chatId]) {
+    db[chatId] = {
+      chat_id: chatId,
+      status: 'draft',
+      app_count: 0,
+      last_message: null
+    };
+    saveDB();
+  }
+  return db[chatId];
+}
+
+function updateUser(chatId, data) {
+  db[chatId] = { ...getUser(chatId), ...data };
+  saveDB();
+}
 
 // ===== ANTI-SPAM =====
 const spamMap = new Map();
@@ -62,24 +89,13 @@ bot.onText(/\/start/, async (msg) => {
       ? `@${msg.from.username}`
       : msg.from.first_name || `id:${msg.from.id}`;
 
-  const user = await pool.query(
-    "SELECT * FROM applications WHERE chat_id=$1",
-    [chatId]
-  );
+  const user = getUser(chatId);
 
-  if (!user.rows[0]) {
-    await pool.query(`
-      INSERT INTO applications(chat_id, username, status, app_count, last_message)
-      VALUES ($1,$2,'draft',0,NOW())
-      ON CONFLICT (chat_id)
-      DO UPDATE SET username=EXCLUDED.username
-    `, [chatId, username]);
-  }
-
-  await pool.query(`
-    UPDATE applications SET status='draft', last_message=NOW()
-    WHERE chat_id=$1
-  `, [chatId]);
+  updateUser(chatId, {
+    username,
+    status: 'draft',
+    last_message: Date.now()
+  });
 
   bot.sendMessage(chatId, "📝 Заявка начата!\nВведите ваш возраст:");
 });
@@ -92,39 +108,31 @@ bot.on('message', async (msg) => {
   if (!text) return;
   if (isSpam(chatId)) return;
 
-  const res = await pool.query(
-    "SELECT * FROM applications WHERE chat_id=$1",
-    [chatId]
-  );
-
-  const user = res.rows[0];
-  if (!user || user.status !== 'draft') return;
+  const user = getUser(chatId);
+  if (user.status !== 'draft') return;
 
   if (user.last_message) {
-    const diff = Date.now() - new Date(user.last_message).getTime();
+    const diff = Date.now() - user.last_message;
     if (diff < 3600000) {
       const mins = Math.ceil((3600000 - diff) / 60000);
       return bot.sendMessage(chatId, `⏳ Подождите ${mins} мин`);
     }
   }
 
-  await pool.query(`
-    UPDATE applications SET last_message=NOW()
-    WHERE chat_id=$1
-  `, [chatId]);
+  updateUser(chatId, { last_message: Date.now() });
 
   if (!user.age) {
-    await pool.query("UPDATE applications SET age=$1 WHERE chat_id=$2", [text, chatId]);
+    updateUser(chatId, { age: text });
     return bot.sendMessage(chatId, "🎮 Ник Minecraft:");
   }
 
   if (!user.mc_nick) {
-    await pool.query("UPDATE applications SET mc_nick=$1 WHERE chat_id=$2", [text, chatId]);
+    updateUser(chatId, { mc_nick: text });
     return bot.sendMessage(chatId, "👥 Ник пригласившего:");
   }
 
   if (!user.inviter) {
-    await pool.query("UPDATE applications SET inviter=$1 WHERE chat_id=$2", [text, chatId]);
+    updateUser(chatId, { inviter: text });
     return bot.sendMessage(chatId, "🧾 О себе (24+ символа):");
   }
 
@@ -132,14 +140,9 @@ bot.on('message', async (msg) => {
     if (text.length < 24)
       return bot.sendMessage(chatId, "❌ Минимум 24 символа");
 
-    await pool.query(`
-      UPDATE applications SET about=$1 WHERE chat_id=$2
-    `, [text, chatId]);
+    updateUser(chatId, { about: text });
 
-    const app = (await pool.query(
-      "SELECT * FROM applications WHERE chat_id=$1",
-      [chatId]
-    )).rows[0];
+    const app = getUser(chatId);
 
     const message = `
 📥 ЗАЯВКА
@@ -162,11 +165,11 @@ bot.on('message', async (msg) => {
       }
     });
 
-    await pool.query(`
-      UPDATE applications
-      SET message_id=$1, status='pending', app_count=app_count+1
-      WHERE chat_id=$2
-    `, [sent.message_id, chatId]);
+    updateUser(chatId, {
+      message_id: sent.message_id,
+      status: 'pending',
+      app_count: (app.app_count || 0) + 1
+    });
 
     return bot.sendMessage(chatId, "✅ Заявка отправлена!");
   }
@@ -180,10 +183,7 @@ bot.on('callback_query', async (q) => {
   const [action, chatIdStr] = data.split(':');
   const chatId = Number(chatIdStr);
 
-  const app = (await pool.query(
-    "SELECT * FROM applications WHERE chat_id=$1",
-    [chatId]
-  )).rows[0];
+  const app = getUser(chatId);
 
   if (!app) return bot.answerCallbackQuery(q.id, { text: "Нет заявки" });
 
@@ -194,10 +194,7 @@ bot.on('callback_query', async (q) => {
   if (action === "accept") {
     await addToWhitelist(app.mc_nick);
 
-    await pool.query(`
-      UPDATE applications SET status='accepted'
-      WHERE chat_id=$1
-    `, [chatId]);
+    updateUser(chatId, { status: 'accepted' });
 
     await bot.sendMessage(chatId, "🎉 Вы приняты!");
 
@@ -206,7 +203,7 @@ bot.on('callback_query', async (q) => {
       message_id: app.message_id
     });
 
-    await sendLog(`✅ ПРИНЯТА @${app.username || "unknown"}`);
+    await sendLog(`✅ ПРИНЯТА ${app.username || "unknown"}`);
 
     return bot.answerCallbackQuery(q.id, { text: "OK" });
   }
@@ -230,16 +227,12 @@ bot.on('message', async (msg) => {
   const chatId = bot.rejectTarget;
   bot.rejectTarget = null;
 
-  await pool.query(`
-    UPDATE applications
-    SET status='rejected', reason=$1
-    WHERE chat_id=$2
-  `, [text, chatId]);
+  const app = getUser(chatId);
 
-  const app = (await pool.query(
-    "SELECT * FROM applications WHERE chat_id=$1",
-    [chatId]
-  )).rows[0];
+  updateUser(chatId, {
+    status: 'rejected',
+    reason: text
+  });
 
   await bot.sendMessage(chatId, `❌ Отклонено\n\n📌 Причина: ${text}`);
 
@@ -248,7 +241,7 @@ bot.on('message', async (msg) => {
     message_id: app.message_id
   });
 
-  await sendLog(`❌ ОТКЛОНЕНА @${app.username || "unknown"} | ${text}`);
+  await sendLog(`❌ ОТКЛОНЕНА ${app.username || "unknown"} | ${text}`);
 });
 
-console.log("Bot started");
+console.log("Bot started (JSON mode)");
