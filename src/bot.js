@@ -15,16 +15,6 @@ const STEPS = [
   { key: 'about', label: 'О себе' }
 ];
 
-// ================= SAFE WRAPPER =================
-async function safe(fn) {
-  try {
-    return await fn();
-  } catch (e) {
-    console.error('TG ERROR:', e?.response?.body || e.message);
-    return null;
-  }
-}
-
 // ================= SESSION =================
 function getSession(id) {
   id = String(id);
@@ -32,7 +22,13 @@ function getSession(id) {
   if (!sessions.has(id)) {
     sessions.set(id, {
       step: 0,
-      data: {},
+      data: {
+        age: null,
+        gender: null,
+        nickname: null,
+        friend: null,
+        about: null
+      },
       messageId: null,
       chatId: null
     });
@@ -42,12 +38,26 @@ function getSession(id) {
 }
 
 function reset(id) {
-  sessions.set(String(id), {
-    step: 0,
-    data: {},
-    messageId: null,
-    chatId: null
-  });
+  const s = getSession(id);
+
+  s.step = 0;
+  s.data.age = null;
+  s.data.gender = null;
+  s.data.nickname = null;
+  s.data.friend = null;
+  s.data.about = null;
+  s.messageId = null;
+  s.chatId = null;
+}
+
+// ================= SAFE WRAPPER =================
+async function safe(fn) {
+  try {
+    return await fn();
+  } catch (e) {
+    console.error('TG ERROR:', e?.response?.body || e.message);
+    return null;
+  }
 }
 
 // ================= UI =================
@@ -135,6 +145,8 @@ bot.on('callback_query', async (q) => {
   const s = getSession(id);
 
   try {
+
+    // RESET
     if (q.data === 'restart') {
       if (s.messageId) {
         await safe(() => bot.deleteMessage(chatId, s.messageId));
@@ -148,13 +160,15 @@ bot.on('callback_query', async (q) => {
       return safe(() => bot.answerCallbackQuery(q.id));
     }
 
+    // BACK
     if (q.data === 'back') {
-      s.step = Math.max(0, (s.step || 0) - 1);
+      s.step = Math.max(0, s.step - 1);
       await updateUI(chatId, s);
 
       return safe(() => bot.answerCallbackQuery(q.id));
     }
 
+    // SUBMIT
     if (q.data === 'submit') {
       const d = s.data;
 
@@ -169,13 +183,23 @@ bot.on('callback_query', async (q) => {
       }
 
       await safe(() =>
-        bot.sendMessage(chatId, '📥 Заявка отправлена')
+        bot.sendMessage(chatId,
+`📥 Заявка
+
+Возраст: ${d.age}
+Пол: ${d.gender}
+Ник: ${d.nickname}
+Пригласил: ${d.friend}
+
+О себе:
+${d.about}`)
       );
 
       reset(id);
 
       return safe(() => bot.answerCallbackQuery(q.id));
     }
+
   } catch (e) {
     console.error(e);
   }
@@ -188,7 +212,7 @@ bot.on('message', async (msg) => {
   const id = String(msg.from.id);
   const s = getSession(id);
 
-  // 🔥 защита step
+  // защита step
   if (!Number.isInteger(s.step) || s.step < 0 || s.step >= STEPS.length) {
     s.step = 0;
   }
@@ -202,6 +226,7 @@ bot.on('message', async (msg) => {
   let ok = false;
 
   switch (key) {
+
     case 'age':
       if (/^\d+$/.test(text)) {
         s.data.age = text;
@@ -217,21 +242,21 @@ bot.on('message', async (msg) => {
       break;
 
     case 'nickname':
-      if (text) {
+      if (text.length > 0) {
         s.data.nickname = text;
         ok = true;
       }
       break;
 
     case 'friend':
-      if (text) {
+      if (text.length > 0) {
         s.data.friend = text;
         ok = true;
       }
       break;
 
     case 'about':
-      if (text.length >= 10) {
+      if (text.length >= 5) {
         s.data.about = text;
         ok = true;
       }
@@ -240,9 +265,9 @@ bot.on('message', async (msg) => {
 
   if (!ok) return;
 
-  s.step = Math.min(s.step + 1, STEPS.length);
+  s.step++;
 
   await updateUI(msg.chat.id, s);
 });
 
-console.log('🚀 BOT STABLE AND FIXED');
+console.log('🚀 FULLY FIXED BOT RUNNING');
