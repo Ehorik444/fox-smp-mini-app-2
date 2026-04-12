@@ -60,7 +60,9 @@ bot.onText(/\/start/, async (msg) => {
   const username =
     msg.from.username
       ? `@${msg.from.username}`
-      : (msg.from.first_name || `id:${msg.from.id}`);
+      : (msg.from.first_name
+          ? msg.from.first_name
+          : `id:${msg.from.id}`);
 
   const user = await pool.query(
     "SELECT * FROM applications WHERE chat_id=$1",
@@ -84,33 +86,12 @@ bot.onText(/\/start/, async (msg) => {
   bot.sendMessage(chatId, "📝 Заявка начата!\nВведите ваш возраст:");
 });
 
-// ===== STATS (КТО СКОЛЬКО ЗАЯВОК ПОДАЛ) =====
-bot.onText(/\/stats/, async (msg) => {
-  if (!ADMINS.includes(msg.from.id)) return;
-
-  const res = await pool.query(`
-    SELECT username, app_count
-    FROM applications
-    ORDER BY app_count DESC
-    LIMIT 10
-  `);
-
-  const text =
-    "📊 ТОП ЗАЯВОК:\n\n" +
-    res.rows.map((u, i) =>
-      `${i + 1}. ${u.username || "unknown"} — ${u.app_count}`
-    ).join("\n");
-
-  bot.sendMessage(msg.chat.id, text);
-});
-
 // ===== MESSAGE FLOW =====
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
   if (!text) return;
-
   if (isSpam(chatId)) return;
 
   const res = await pool.query(
