@@ -1,4 +1,4 @@
-console.log("=== PRO BOT (ULTRA STABLE POLLING) ===");
+console.log("=== PRO BOT (ULTRA STABLE + LOG FORMAT) ===");
 
 require('dotenv').config();
 const fs = require('fs');
@@ -7,13 +7,8 @@ const TelegramBot = require('node-telegram-bot-api');
 const { Rcon } = require('rcon-client');
 
 // ================= GLOBAL PROTECTION =================
-process.on('uncaughtException', (err) => {
-  console.error('🔥 UNCAUGHT:', err);
-});
-
-process.on('unhandledRejection', (err) => {
-  console.error('🔥 UNHANDLED:', err);
-});
+process.on('uncaughtException', (err) => console.error('UNCAUGHT:', err));
+process.on('unhandledRejection', (err) => console.error('UNHANDLED:', err));
 
 // ================= DB =================
 const DB_FILE = path.join(__dirname, 'applications.json');
@@ -22,8 +17,7 @@ function loadDB() {
   try {
     if (!fs.existsSync(DB_FILE)) return {};
     return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-  } catch (e) {
-    console.error("DB LOAD ERROR:", e);
+  } catch {
     return {};
   }
 }
@@ -43,16 +37,14 @@ const bot = new TelegramBot(process.env.BOT_TOKEN, {
   polling: {
     autoStart: false,
     interval: 300,
-    params: {
-      timeout: 30 // 🔥 ключ к стабильности
-    }
+    params: { timeout: 30 }
   }
 });
 
-// ================= POLLING CONTROL =================
+// ================= POLLING =================
 async function startPollingSafe() {
   try {
-    console.log("🚀 Starting polling...");
+    console.log("🚀 Polling started");
     await bot.startPolling();
   } catch (e) {
     console.error("Polling start error:", e.message);
@@ -60,19 +52,13 @@ async function startPollingSafe() {
   }
 }
 
-// авто восстановление
 bot.on('polling_error', (err) => {
-  console.error('⚠️ Polling error:', err.message);
-
-  setTimeout(() => {
-    console.log("🔄 Restart polling...");
-    startPollingSafe();
-  }, 5000);
+  console.error('Polling error:', err.message);
+  setTimeout(startPollingSafe, 5000);
 });
 
-// анти зависание (heartbeat)
 setInterval(() => {
-  console.log("💓 BOT ALIVE:", new Date().toISOString());
+  console.log("💓 ALIVE:", new Date().toISOString());
 }, 60000);
 
 // ================= CONFIG =================
@@ -92,7 +78,14 @@ const STATES = {
 
 let rejectTargets = {};
 
-// ================= SAFE METHODS =================
+// ================= HELPERS =================
+function formatDate(ts = Date.now()) {
+  const d = new Date(ts);
+  const pad = (n) => n.toString().padStart(2, '0');
+
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}, ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 async function safeSend(chatId, text, opts = {}) {
   try {
     return await bot.sendMessage(chatId, text, opts);
@@ -126,7 +119,7 @@ async function addToWhitelist(nick) {
     await rcon.send(`whitelist add ${nick}`);
     await rcon.end();
 
-    console.log(`✅ ${nick} added to whitelist`);
+    console.log(`✅ ${nick} added`);
   } catch (e) {
     console.error("RCON ERROR:", e.message);
   }
@@ -139,8 +132,7 @@ function getUser(chatId) {
       chat_id: chatId,
       status: 'draft',
       state: STATES.AGE,
-      processing: false,
-      created_at: Date.now()
+      processing: false
     };
     saveDB();
   }
@@ -156,10 +148,9 @@ function updateUser(chatId, data) {
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
 
-  const username =
-    msg.from.username
-      ? `@${msg.from.username}`
-      : msg.from.first_name || `id:${msg.from.id}`;
+  const username = msg.from.username
+    ? `@${msg.from.username}`
+    : msg.from.first_name;
 
   updateUser(chatId, {
     username,
@@ -179,7 +170,7 @@ bot.on('message', async (msg) => {
 
   const user = getUser(chatId);
 
-  // ADMIN REJECT
+  // ===== REJECT FLOW =====
   if (rejectTargets[msg.from.id] && ADMINS.includes(msg.from.id)) {
     const target = rejectTargets[msg.from.id];
     delete rejectTargets[msg.from.id];
@@ -188,11 +179,27 @@ bot.on('message', async (msg) => {
 
     updateUser(target, {
       status: 'rejected',
-      reason: text
+      reason: text,
+      rejected_by: msg.from.id,
+      rejected_at: Date.now()
     });
 
+    const adminName = msg.from.username
+      ? `@${msg.from.username}`
+      : msg.from.first_name;
+
+    const logText = `
+❌ ОТКЛОНЕНА
+
+👤 Админ: ${adminName}
+🎮 ${app.mc_nick}
+📌 ${text}
+🕒 ${formatDate()}
+`;
+
     await safeSend(target, `❌ Отклонено\n\nПричина: ${text}`);
-    await safeEdit("❌ ОТКЛОНЕНА", app);
+    await safeEdit(logText, app);
+
     return;
   }
 
@@ -223,7 +230,7 @@ bot.on('message', async (msg) => {
 
         const app = getUser(chatId);
 
-        const message = `
+        const sent = await safeSend(FORUM_CHAT_ID, `
 📥 ЗАЯВКА
 
 👤 ${app.username}
@@ -232,9 +239,7 @@ bot.on('message', async (msg) => {
 👥 ${app.inviter}
 
 🧾 ${app.about}
-`;
-
-        const sent = await safeSend(FORUM_CHAT_ID, message, {
+`, {
           message_thread_id: FORUM_TOPIC_ID,
           reply_markup: {
             inline_keyboard: [[
@@ -281,10 +286,26 @@ bot.on('callback_query', async (q) => {
   if (action === "accept") {
     await addToWhitelist(app.mc_nick);
 
-    updateUser(chatId, { status: 'accepted' });
+    updateUser(chatId, {
+      status: 'accepted',
+      accepted_by: adminId,
+      accepted_at: Date.now()
+    });
+
+    const adminName = q.from.username
+      ? `@${q.from.username}`
+      : q.from.first_name;
+
+    const logText = `
+✅ ПРИНЯТА
+
+👤 Админ: ${adminName}
+🎮 ${app.mc_nick}
+🕒 ${formatDate()}
+`;
 
     await safeSend(chatId, "🎉 Вы приняты!");
-    await safeEdit("✅ ПРИНЯТА", app);
+    await safeEdit(logText, app);
 
     return bot.answerCallbackQuery(q.id, { text: "OK" });
   }
@@ -299,4 +320,4 @@ bot.on('callback_query', async (q) => {
 // ================= START =================
 startPollingSafe();
 
-console.log("✅ BOT STARTED (ULTRA STABLE)");
+console.log("✅ BOT STARTED");
