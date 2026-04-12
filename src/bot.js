@@ -1,7 +1,16 @@
 const TelegramBot = require('node-telegram-bot-api');
 require('dotenv').config();
 
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
+// ================= CHECK TOKEN =================
+if (!process.env.TELEGRAM_BOT_TOKEN) {
+  console.error('❌ Missing TELEGRAM_BOT_TOKEN in .env');
+  process.exit(1);
+}
+
+// ================= BOT =================
+const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
+  polling: true
+});
 
 // ================= CONFIG =================
 const ADMIN_CHAT_ID = -1003255144076;
@@ -19,7 +28,7 @@ const STEPS = [
   { key: 'about', label: 'О себе' }
 ];
 
-// ================= SAFE =================
+// ================= SAFE WRAPPER =================
 async function safe(fn) {
   try {
     return await fn();
@@ -43,8 +52,7 @@ function getSession(id) {
         friend: null,
         about: null
       },
-      messageId: null,
-      chatId: null
+      messageId: null
     });
   }
 
@@ -61,7 +69,6 @@ function reset(id) {
   s.data.friend = null;
   s.data.about = null;
   s.messageId = null;
-  s.chatId = null;
 }
 
 // ================= UI =================
@@ -74,7 +81,7 @@ function render(s) {
 
   if (s.step >= STEPS.length) {
     return {
-      text: `💳 Заявка
+      text: `📥 Заявка
 
 [${bar}] ${percent}%
 
@@ -88,7 +95,7 @@ ${d.about}
 
 Подтвердите отправку`,
       keyboard: [
-        [{ text: 'Подтвердить', callback_data: 'submit' }],
+        [{ text: '✅ Отправить', callback_data: 'submit' }],
         [{ text: '← Назад', callback_data: 'back' }]
       ]
     };
@@ -122,10 +129,7 @@ async function updateUI(chatId, s) {
       })
     );
 
-    if (msg) {
-      s.messageId = msg.message_id;
-      s.chatId = chatId;
-    }
+    if (msg) s.messageId = msg.message_id;
 
     return;
   }
@@ -139,7 +143,7 @@ async function updateUI(chatId, s) {
   );
 }
 
-// ================= CALLBACK =================
+// ================= CALLBACKS =================
 bot.on('callback_query', async (q) => {
   if (!q?.message?.chat) return;
 
@@ -148,30 +152,20 @@ bot.on('callback_query', async (q) => {
   const s = getSession(id);
 
   try {
-
-    // RESET
     if (q.data === 'restart') {
-      if (s.messageId) {
-        await safe(() => bot.deleteMessage(chatId, s.messageId));
-      }
-
       reset(id);
-
       const fresh = getSession(id);
-      await updateUI(chatId, fresh);
 
+      await updateUI(chatId, fresh);
       return safe(() => bot.answerCallbackQuery(q.id));
     }
 
-    // BACK
     if (q.data === 'back') {
       s.step = Math.max(0, s.step - 1);
       await updateUI(chatId, s);
-
       return safe(() => bot.answerCallbackQuery(q.id));
     }
 
-    // SUBMIT
     if (q.data === 'submit') {
       const d = s.data;
 
@@ -187,7 +181,7 @@ bot.on('callback_query', async (q) => {
       await safe(() =>
         bot.sendMessage(
           ADMIN_CHAT_ID,
-`📥 Заявка
+`📥 Новая заявка
 
 Возраст: ${d.age}
 Пол: ${d.gender}
@@ -211,7 +205,6 @@ ${d.about}`,
       reset(id);
 
       await safe(() => bot.sendMessage(chatId, 'Заявка отправлена'));
-
       return safe(() => bot.answerCallbackQuery(q.id));
     }
 
@@ -246,8 +239,8 @@ bot.on('message', async (msg) => {
   const stepObj = STEPS[s.step];
   if (!stepObj) return;
 
-  const key = stepObj.key;
   const text = msg.text.trim();
+  const key = stepObj.key;
 
   let ok = false;
 
@@ -279,8 +272,13 @@ bot.on('message', async (msg) => {
   if (!ok) return;
 
   s.step++;
-
   await updateUI(msg.chat.id, s);
 });
 
-console.log('🚀 BOT FULLY FIXED + ADMIN BUTTONS WORKING');
+// ================= START =================
+bot.getMe()
+  .then(() => console.log('🚀 BOT RUNNING'))
+  .catch(err => {
+    console.error('❌ BOT FAILED:', err?.response?.body || err.message);
+    process.exit(1);
+  });
