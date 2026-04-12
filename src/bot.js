@@ -1,4 +1,4 @@
-console.log("=== NEW VERSION (JSON STORAGE) ===");
+console.log("=== PRO BOT (JSON + FSM) ===");
 
 require('dotenv').config();
 const fs = require('fs');
@@ -6,7 +6,7 @@ const path = require('path');
 const TelegramBot = require('node-telegram-bot-api');
 const { Rcon } = require('rcon-client');
 
-// ===== FILE STORAGE =====
+// ================= FILE DB =================
 const DB_FILE = path.join(__dirname, 'applications.json');
 
 function loadDB() {
@@ -20,24 +20,33 @@ function saveDB() {
 
 let db = loadDB();
 
-// ===== BOT =====
+// ================= BOT =================
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
-// ===== CONFIG =====
+// ================= CONFIG =================
 const FORUM_CHAT_ID = -1003255144076;
 const FORUM_TOPIC_ID = 3567;
 const LOG_TOPIC_ID = 28258;
 
 const ADMINS = [5372937661, 2121418969];
 
-// ===== HELPERS =====
+// ================= FSM STATES =================
+const STATES = {
+  AGE: "AGE",
+  MC_NICK: "MC_NICK",
+  INVITER: "INVITER",
+  ABOUT: "ABOUT",
+  DONE: "DONE"
+};
+
+// ================= HELPERS =================
 function getUser(chatId) {
   if (!db[chatId]) {
     db[chatId] = {
       chat_id: chatId,
       status: 'draft',
-      app_count: 0,
-      last_message: null
+      state: STATES.AGE,
+      app_count: 0
     };
     saveDB();
   }
@@ -49,19 +58,19 @@ function updateUser(chatId, data) {
   saveDB();
 }
 
-// ===== ANTI-SPAM =====
+// ================= ANTI-SPAM =================
 const spamMap = new Map();
 
 function isSpam(chatId) {
   const now = Date.now();
   const last = spamMap.get(chatId) || 0;
 
-  if (now - last < 2000) return true;
+  if (now - last < 1500) return true;
   spamMap.set(chatId, now);
   return false;
 }
 
-// ===== RCON =====
+// ================= RCON =================
 async function addToWhitelist(nick) {
   const rcon = await Rcon.connect({
     host: process.env.RCON_HOST,
@@ -73,14 +82,14 @@ async function addToWhitelist(nick) {
   await rcon.end();
 }
 
-// ===== LOG =====
+// ================= LOG =================
 async function sendLog(text) {
   return bot.sendMessage(FORUM_CHAT_ID, text, {
     message_thread_id: LOG_TOPIC_ID
   });
 }
 
-// ===== START =====
+// ================= START =================
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
 
@@ -89,18 +98,16 @@ bot.onText(/\/start/, async (msg) => {
       ? `@${msg.from.username}`
       : msg.from.first_name || `id:${msg.from.id}`;
 
-  const user = getUser(chatId);
-
   updateUser(chatId, {
     username,
     status: 'draft',
-    last_message: Date.now()
+    state: STATES.AGE
   });
 
   bot.sendMessage(chatId, "📝 Заявка начата!\nВведите ваш возраст:");
 });
 
-// ===== MESSAGE FLOW =====
+// ================= STATE MACHINE =================
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
@@ -109,42 +116,56 @@ bot.on('message', async (msg) => {
   if (isSpam(chatId)) return;
 
   const user = getUser(chatId);
+
   if (user.status !== 'draft') return;
 
-  if (user.last_message) {
-    const diff = Date.now() - user.last_message;
-    if (diff < 3600000) {
-      const mins = Math.ceil((3600000 - diff) / 60000);
-      return bot.sendMessage(chatId, `⏳ Подождите ${mins} мин`);
+  const state = user.state;
+
+  switch (state) {
+
+    // ===== AGE =====
+    case STATES.AGE: {
+      updateUser(chatId, {
+        age: text,
+        state: STATES.MC_NICK
+      });
+
+      return bot.sendMessage(chatId, "🎮 Ник Minecraft:");
     }
-  }
 
-  updateUser(chatId, { last_message: Date.now() });
+    // ===== MC NICK =====
+    case STATES.MC_NICK: {
+      updateUser(chatId, {
+        mc_nick: text,
+        state: STATES.INVITER
+      });
 
-  if (!user.age) {
-    updateUser(chatId, { age: text });
-    return bot.sendMessage(chatId, "🎮 Ник Minecraft:");
-  }
+      return bot.sendMessage(chatId, "👥 Ник пригласившего:");
+    }
 
-  if (!user.mc_nick) {
-    updateUser(chatId, { mc_nick: text });
-    return bot.sendMessage(chatId, "👥 Ник пригласившего:");
-  }
+    // ===== INVITER =====
+    case STATES.INVITER: {
+      updateUser(chatId, {
+        inviter: text,
+        state: STATES.ABOUT
+      });
 
-  if (!user.inviter) {
-    updateUser(chatId, { inviter: text });
-    return bot.sendMessage(chatId, "🧾 О себе (24+ символа):");
-  }
+      return bot.sendMessage(chatId, "🧾 О себе (24+ символа):");
+    }
 
-  if (!user.about) {
-    if (text.length < 24)
-      return bot.sendMessage(chatId, "❌ Минимум 24 символа");
+    // ===== ABOUT =====
+    case STATES.ABOUT: {
+      if (text.length < 24)
+        return bot.sendMessage(chatId, "❌ Минимум 24 символа");
 
-    updateUser(chatId, { about: text });
+      updateUser(chatId, {
+        about: text,
+        state: STATES.DONE
+      });
 
-    const app = getUser(chatId);
+      const app = getUser(chatId);
 
-    const message = `
+      const message = `
 📥 ЗАЯВКА
 
 👤 ${app.username || "нет username"}
@@ -155,42 +176,50 @@ bot.on('message', async (msg) => {
 🧾 ${app.about}
 `;
 
-    const sent = await bot.sendMessage(FORUM_CHAT_ID, message, {
-      message_thread_id: FORUM_TOPIC_ID,
-      reply_markup: {
-        inline_keyboard: [[
-          { text: "✅ Принять", callback_data: `accept:${chatId}` },
-          { text: "❌ Отклонить", callback_data: `reject:${chatId}` }
-        ]]
-      }
-    });
+      const sent = await bot.sendMessage(FORUM_CHAT_ID, message, {
+        message_thread_id: FORUM_TOPIC_ID,
+        reply_markup: {
+          inline_keyboard: [[
+            { text: "✅ Принять", callback_data: `accept:${chatId}` },
+            { text: "❌ Отклонить", callback_data: `reject:${chatId}` }
+          ]]
+        }
+      });
 
-    updateUser(chatId, {
-      message_id: sent.message_id,
-      status: 'pending',
-      app_count: (app.app_count || 0) + 1
-    });
+      updateUser(chatId, {
+        message_id: sent.message_id,
+        status: 'pending',
+        app_count: (app.app_count || 0) + 1
+      });
 
-    return bot.sendMessage(chatId, "✅ Заявка отправлена!");
+      return bot.sendMessage(chatId, "✅ Заявка отправлена!");
+    }
+
+    default:
+      return;
   }
 });
 
-// ===== CALLBACKS =====
+// ================= CALLBACKS =================
 bot.on('callback_query', async (q) => {
   const adminId = q.from.id;
-  const data = q.data;
-
-  const [action, chatIdStr] = data.split(':');
+  const [action, chatIdStr] = q.data.split(':');
   const chatId = Number(chatIdStr);
 
   const app = getUser(chatId);
 
-  if (!app) return bot.answerCallbackQuery(q.id, { text: "Нет заявки" });
-
   if (!ADMINS.includes(adminId)) {
-    return bot.answerCallbackQuery(q.id, { text: "Нет прав", show_alert: true });
+    return bot.answerCallbackQuery(q.id, {
+      text: "Нет прав",
+      show_alert: true
+    });
   }
 
+  if (!app) {
+    return bot.answerCallbackQuery(q.id, { text: "Нет заявки" });
+  }
+
+  // ===== ACCEPT =====
   if (action === "accept") {
     await addToWhitelist(app.mc_nick);
 
@@ -208,14 +237,16 @@ bot.on('callback_query', async (q) => {
     return bot.answerCallbackQuery(q.id, { text: "OK" });
   }
 
+  // ===== REJECT =====
   if (action === "reject") {
     bot.rejectTarget = chatId;
+
     await bot.sendMessage(adminId, "Введите причину отказа:");
     return bot.answerCallbackQuery(q.id);
   }
 });
 
-// ===== REJECT REASON =====
+// ================= REJECT REASON =================
 bot.on('message', async (msg) => {
   const text = msg.text;
   if (!text) return;
@@ -244,4 +275,4 @@ bot.on('message', async (msg) => {
   await sendLog(`❌ ОТКЛОНЕНА ${app.username || "unknown"} | ${text}`);
 });
 
-console.log("Bot started (JSON mode)");
+console.log("Bot started (PRO FSM + JSON)");
