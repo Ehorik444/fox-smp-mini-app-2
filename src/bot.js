@@ -1,11 +1,9 @@
 require('dotenv').config();
-const fs = require('fs');
 const TelegramBot = require('node-telegram-bot-api');
 const { Rcon } = require('rcon-client');
+const { Pool } = require('pg');
 
-const bot = new TelegramBot(process.env.BOT_TOKEN, {
-  polling: true
-});
+const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
 // ===== CONFIG =====
 const FORUM_CHAT_ID = -1003255144076;
@@ -14,42 +12,26 @@ const LOG_TOPIC_ID = 28258;
 
 const ADMINS = [5372937661, 2121418969];
 
-// ===== DB FILE =====
-const DB_FILE = './db.json';
+// ===== DB =====
+const pool = new Pool({
+  host: process.env.PGHOST,
+  port: process.env.PGPORT,
+  user: process.env.PGUSER,
+  password: process.env.PGPASSWORD,
+  database: process.env.PGDATABASE,
+  ssl: { rejectUnauthorized: false }
+});
 
-let db = {
-  users: {},        // заявки
-  pendingRejects: {},
-  appMessages: {},
-  rejected: {},     // причины отказа
-  reviewed: {}      // пересмотренные заявки
-};
+// ===== ANTI-SPAM =====
+const spamMap = new Map();
 
-// ===== LOAD DB =====
-if (fs.existsSync(DB_FILE)) {
-  try {
-    db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-  } catch (e) {
-    console.error("DB LOAD ERROR:", e);
-  }
-}
+function isSpam(chatId) {
+  const now = Date.now();
+  const last = spamMap.get(chatId) || 0;
 
-function saveDB() {
-  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
-}
-
-// ===== TIME =====
-function getTime() {
-  return new Date().toLocaleString("ru-RU", {
-    timeZone: "Europe/Moscow"
-  });
-}
-
-// ===== LOG =====
-async function sendLog(text) {
-  await bot.sendMessage(FORUM_CHAT_ID, text, {
-    message_thread_id: LOG_TOPIC_ID
-  });
+  if (now - last < 2000) return true;
+  spamMap.set(chatId, now);
+  return false;
 }
 
 // ===== RCON =====
@@ -64,229 +46,217 @@ async function addToWhitelist(nick) {
   await rcon.end();
 }
 
+// ===== LOG =====
+async function sendLog(text) {
+  return bot.sendMessage(FORUM_CHAT_ID, text, {
+    message_thread_id: LOG_TOPIC_ID
+  });
+}
+
 // ===== START =====
-bot.onText(/\/start/, (msg) => {
+bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
 
-  db.users[chatId] = {
-    step: 1,
-    username: msg.from.username || "нет username",
-    applications: db.users[chatId]?.applications || 0,
-    lastApp: db.users[chatId]?.lastApp || 0
-  };
+  const user = await pool.query(
+    "SELECT * FROM applications WHERE chat_id=$1",
+    [chatId]
+  );
 
-  saveDB();
+  const data = user.rows[0];
+
+  if (!data) {
+    await pool.query(`
+      INSERT INTO applications(chat_id, username, status, app_count, last_message)
+      VALUES ($1,$2,'draft',0,NOW())
+      ON CONFLICT (chat_id)
+      DO UPDATE SET username=EXCLUDED.username
+    `, [chatId, msg.from.username || "нет username"]);
+  }
+
+  await pool.query(`
+    UPDATE applications SET status='draft', last_message=NOW()
+    WHERE chat_id=$1
+  `, [chatId]);
 
   bot.sendMessage(chatId, "📝 Заявка начата!\nВведите ваш возраст:");
 });
 
-// ===== CALLBACKS =====
-bot.on('callback_query', async (query) => {
-  const userId = query.from.id;
-  const data = query.data;
-
-  const [action, chatIdStr] = data.split(':');
-  const targetChatId = Number(chatIdStr);
-
-  const user = db.users[targetChatId];
-
-  // ===== RESTART / REVIEW =====
-  if (data.startsWith('review:')) {
-    const chatId = Number(data.split(':')[1]);
-
-    db.users[chatId] = db.users[chatId] || {};
-    db.users[chatId].step = 1;
-    db.users[chatId].reviewMode = true;
-
-    saveDB();
-
-    await bot.sendMessage(chatId,
-      "🔁 Пересмотр заявки\nВведите ваш возраст:"
-    );
-
-    await bot.answerCallbackQuery(query.id);
-    return;
-  }
-
-  // ===== ADMIN CHECK =====
-  if (!ADMINS.includes(userId)) {
-    return bot.answerCallbackQuery(query.id, {
-      text: "⛔ Нет прав",
-      show_alert: true
-    });
-  }
-
-  if (!user) {
-    return bot.answerCallbackQuery(query.id, {
-      text: "Заявка уже обработана"
-    });
-  }
-
-  // ===== ACCEPT =====
-  if (action === 'accept') {
-    try {
-      await addToWhitelist(user.mcNick);
-
-      db.reviewed[targetChatId] = false;
-
-      await bot.sendMessage(targetChatId,
-        "🎉 Ваша заявка принята! Вы добавлены в whitelist."
-      );
-
-      await bot.editMessageText("✅ ЗАЯВКА ПРИНЯТА", {
-        chat_id: FORUM_CHAT_ID,
-        message_id: query.message.message_id
-      });
-
-      await sendLog(
-`✅ ПРИНЯТА
-
-👤 Админ: @${query.from.username || "no_username"}
-🎮 Игрок: ${user.mcNick}
-🕒 ${getTime()}`
-      );
-
-      delete db.users[targetChatId];
-      saveDB();
-
-      return bot.answerCallbackQuery(query.id, { text: "Принято" });
-    } catch (e) {
-      console.error(e);
-      return bot.answerCallbackQuery(query.id, { text: "RCON ошибка" });
-    }
-  }
-
-  // ===== REJECT =====
-  if (action === 'reject') {
-    db.pendingRejects[userId] = targetChatId;
-    saveDB();
-
-    await bot.sendMessage(userId, "❌ Введите причину отказа:");
-    return bot.answerCallbackQuery(query.id);
-  }
-});
-
-// ===== REJECT REASON HANDLER =====
+// ===== MESSAGE FLOW =====
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
   if (!text) return;
 
-  const user = db.users[chatId];
+  // 🚫 ANTI-SPAM
+  if (isSpam(chatId)) return;
 
-  // ===== REJECT FLOW =====
-  if (db.pendingRejects[msg.from.id]) {
-    const targetChatId = db.pendingRejects[msg.from.id];
-    const target = db.users[targetChatId];
+  const res = await pool.query(
+    "SELECT * FROM applications WHERE chat_id=$1",
+    [chatId]
+  );
 
-    const reason = text;
+  const user = res.rows[0];
+  if (!user || user.status !== 'draft') return;
 
-    if (target) {
-      db.rejected[targetChatId] = reason;
-
-      await bot.sendMessage(targetChatId,
-`❌ Ваша заявка отклонена
-
-📌 Причина: ${reason}
-
-🔁 Вы можете пересмотреть решение`, {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "🔁 Пересмотреть решение", callback_data: `review:${targetChatId}` }]
-          ]
-        }
-      });
-
-      await bot.editMessageText("❌ ЗАЯВКА ОТКЛОНЕНА", {
-        chat_id: FORUM_CHAT_ID,
-        message_id: db.appMessages[targetChatId]
-      });
-
-      await sendLog(
-`❌ ОТКЛОНЕНА
-
-👤 Админ: @${msg.from.username || "no_username"}
-🎮 ${target.mcNick}
-📌 ${reason}
-🕒 ${getTime()}`
-      );
-
-      delete db.users[targetChatId];
-      saveDB();
+  // ⏱ COOLDOWN 1 HOUR
+  if (user.last_message) {
+    const diff = Date.now() - new Date(user.last_message).getTime();
+    if (diff < 3600000) {
+      const mins = Math.ceil((3600000 - diff) / 60000);
+      return bot.sendMessage(chatId, `⏳ Подождите ${mins} мин`);
     }
-
-    delete db.pendingRejects[msg.from.id];
-    saveDB();
-    return;
   }
 
-  if (!user) return;
+  await pool.query(`
+    UPDATE applications SET last_message=NOW()
+    WHERE chat_id=$1
+  `, [chatId]);
 
-  // ===== STEP FLOW =====
-  if (user.step === 1) {
-    user.age = text;
-    user.step = 2;
+  // STEP 1
+  if (!user.age) {
+    await pool.query("UPDATE applications SET age=$1 WHERE chat_id=$2", [text, chatId]);
     return bot.sendMessage(chatId, "🎮 Ник Minecraft:");
   }
 
-  if (user.step === 2) {
-    user.mcNick = text;
-    user.step = 3;
+  // STEP 2
+  if (!user.mc_nick) {
+    await pool.query("UPDATE applications SET mc_nick=$1 WHERE chat_id=$2", [text, chatId]);
     return bot.sendMessage(chatId, "👥 Ник пригласившего:");
   }
 
-  if (user.step === 3) {
-    user.inviter = text;
-    user.step = 4;
+  // STEP 3
+  if (!user.inviter) {
+    await pool.query("UPDATE applications SET inviter=$1 WHERE chat_id=$2", [text, chatId]);
     return bot.sendMessage(chatId, "🧾 О себе (24+ символа):");
   }
 
-  if (user.step === 4) {
-    if (text.length < 24) {
+  // STEP 4
+  if (!user.about) {
+    if (text.length < 24)
       return bot.sendMessage(chatId, "❌ Минимум 24 символа");
-    }
 
-    user.about = text;
+    await pool.query(`
+      UPDATE applications SET about=$1 WHERE chat_id=$2
+    `, [text, chatId]);
 
-    const isReview = user.reviewMode;
+    const app = (await pool.query(
+      "SELECT * FROM applications WHERE chat_id=$1",
+      [chatId]
+    )).rows[0];
 
-    const application =
-(isReview ? "🔁 ПЕРЕСМОТР ЗАЯВКИ\n\n" : "📥 НОВАЯ ЗАЯВКА\n\n") +
-`👤 @${user.username}
-🎂 ${user.age}
-🎮 ${user.mcNick}
-👥 ${user.inviter}
+    const message =
+`📥 ЗАЯВКА
 
-🧾 ${user.about}`;
+👤 @${app.username}
+🎂 ${app.age}
+🎮 ${app.mc_nick}
+👥 ${app.inviter}
 
-    const sent = await bot.sendMessage(
-      FORUM_CHAT_ID,
-      application,
-      {
-        message_thread_id: FORUM_TOPIC_ID,
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: "✅ Принять", callback_data: `accept:${chatId}` },
-              { text: "❌ Отклонить", callback_data: `reject:${chatId}` }
-            ]
-          ]
-        }
+🧾 ${app.about}`;
+
+    const sent = await bot.sendMessage(FORUM_CHAT_ID, message, {
+      message_thread_id: FORUM_TOPIC_ID,
+      reply_markup: {
+        inline_keyboard: [[
+          { text: "✅ Принять", callback_data: `accept:${chatId}` },
+          { text: "❌ Отклонить", callback_data: `reject:${chatId}` }
+        ]]
       }
-    );
+    });
 
-    db.appMessages[chatId] = sent.message_id;
+    await pool.query(`
+      UPDATE applications
+      SET message_id=$1, status='pending', app_count=app_count+1
+      WHERE chat_id=$2
+    `, [sent.message_id, chatId]);
 
-    user.step = 5;
-    user.reviewMode = false;
-
-    saveDB();
-
-    return bot.sendMessage(chatId,
-      isReview ? "🔁 Заявка пересмотрена!" : "✅ Заявка отправлена!"
-    );
+    return bot.sendMessage(chatId, "✅ Заявка отправлена!");
   }
+});
+
+// ===== CALLBACKS =====
+bot.on('callback_query', async (q) => {
+  const adminId = q.from.id;
+  const data = q.data;
+
+  const [action, chatIdStr] = data.split(':');
+  const chatId = Number(chatIdStr);
+
+  const app = (await pool.query(
+    "SELECT * FROM applications WHERE chat_id=$1",
+    [chatId]
+  )).rows[0];
+
+  if (!app) return bot.answerCallbackQuery(q.id, { text: "Нет заявки" });
+
+  if (!ADMINS.includes(adminId)) {
+    return bot.answerCallbackQuery(q.id, { text: "Нет прав", show_alert: true });
+  }
+
+  // ===== ACCEPT =====
+  if (action === "accept") {
+    await addToWhitelist(app.mc_nick);
+
+    await pool.query(`
+      UPDATE applications SET status='accepted'
+      WHERE chat_id=$1
+    `, [chatId]);
+
+    await bot.sendMessage(chatId, "🎉 Вы приняты!");
+
+    await bot.editMessageText("✅ ПРИНЯТА", {
+      chat_id: FORUM_CHAT_ID,
+      message_id: app.message_id
+    });
+
+    await sendLog(`✅ ПРИНЯТА @${app.username}`);
+
+    return bot.answerCallbackQuery(q.id, { text: "OK" });
+  }
+
+  // ===== REJECT =====
+  if (action === "reject") {
+    bot.rejectTarget = chatId;
+    await bot.sendMessage(adminId, "Введите причину отказа:");
+    return bot.answerCallbackQuery(q.id);
+  }
+});
+
+// ===== REJECT REASON =====
+bot.on('message', async (msg) => {
+  const text = msg.text;
+  if (!text) return;
+
+  const adminId = msg.from.id;
+
+  if (!bot.rejectTarget || !ADMINS.includes(adminId)) return;
+
+  const chatId = bot.rejectTarget;
+  bot.rejectTarget = null;
+
+  await pool.query(`
+    UPDATE applications
+    SET status='rejected', reason=$1
+    WHERE chat_id=$2
+  `, [text, chatId]);
+
+  const app = (await pool.query(
+    "SELECT * FROM applications WHERE chat_id=$1",
+    [chatId]
+  )).rows[0];
+
+  await bot.sendMessage(chatId,
+`❌ Отклонено
+
+📌 Причина: ${text}`);
+
+  await bot.editMessageText("❌ ОТКЛОНЕНА", {
+    chat_id: FORUM_CHAT_ID,
+    message_id: app.message_id
+  });
+
+  await sendLog(`❌ ОТКЛОНЕНА @${app.username} | ${text}`);
 });
 
 console.log("Bot started");
