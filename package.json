@@ -1,9 +1,10 @@
 {
   "name": "bot",
   "version": "1.0.0",
-  "main": "bot.js",
+  "main": "src/bot.js",
   "dependencies": {
     "dotenv": "^16.0.0",
-    "node-telegram-bot-api": "^0.66.0"
+    "node-telegram-bot-api": "^0.66.0",
+    "rcon-client": "^4.2.0"
   }
 }
