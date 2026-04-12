@@ -1,15 +1,18 @@
 const TelegramBot = require('node-telegram-bot-api');
-const Redis = require('ioredis');
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
 
-// ========= CONFIG =========
+// ========= BOT =========
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
-const redis = new Redis(process.env.REDIS_URL);
 
 const ADMIN_CHAT_ID = -1003255144076;
 const ADMIN_THREAD_ID = 3567;
 
-const SESSION_TTL = 600; // 10 минут
+const SESSION_TTL = 10 * 60 * 1000;
+
+// ========= FILE DB =========
+const FILE_PATH = path.join(__dirname, 'applications.json');
 
 // ========= QUEUE (анти-флуд) =========
 const queue = [];
@@ -19,6 +22,7 @@ function sleep(ms) {
   return new Promise(res => setTimeout(res, ms));
 }
 
+// ========= SAFE SEND (429 FIX) =========
 async function safe(fn, retries = 3) {
   try {
     return await fn();
@@ -27,10 +31,8 @@ async function safe(fn, retries = 3) {
 
     if (err?.error_code === 429 && retries > 0) {
       const wait = (err.parameters?.retry_after || 1) * 1000;
-
       console.log(`⏳ Flood control: жду ${wait / 1000}s`);
       await sleep(wait);
-
       return safe(fn, retries - 1);
     }
 
@@ -39,6 +41,7 @@ async function safe(fn, retries = 3) {
   }
 }
 
+// ========= QUEUE =========
 async function enqueue(task) {
   queue.push(task);
   processQueue();
@@ -51,33 +54,112 @@ async function processQueue() {
   while (queue.length) {
     const task = queue.shift();
     await safe(task);
-    await sleep(80); // мягкий лимит
+    await sleep(80);
   }
 
   sending = false;
 }
 
+// ========= FILE DB FUNCTIONS =========
+function readApplications() {
+  try {
+    if (!fs.existsSync(FILE_PATH)) return [];
+    return JSON.parse(fs.readFileSync(FILE_PATH, 'utf8') || '[]');
+  } catch (e) {
+    console.error('READ ERROR:', e.message);
+    return [];
+  }
+}
+
+function writeApplications(data) {
+  try {
+    fs.writeFileSync(FILE_PATH, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error('WRITE ERROR:', e.message);
+  }
+}
+
+function saveApplication(userId, data, status) {
+  const apps = readApplications();
+
+  apps.push({
+    id: Date.now(),
+    user_id: String(userId),
+    age: data.age,
+    gender: data.gender,
+    nickname: data.nickname,
+    friend: data.friend,
+    about: data.about,
+    status,
+    created_at: new Date().toISOString()
+  });
+
+  writeApplications(apps);
+}
+
+function updateLastApplication(userId, status) {
+  const apps = readApplications();
+
+  for (let i = apps.length - 1; i >= 0; i--) {
+    if (String(apps[i].user_id) === String(userId)) {
+      apps[i].status = status;
+      break;
+    }
+  }
+
+  writeApplications(apps);
+}
+
 // ========= SESSION =========
-async function getSession(id) {
-  const data = await redis.get(`session:${id}`);
-  return data ? JSON.parse(data) : { step: 0, data: {} };
+const sessions = new Map();
+
+function getSession(id) {
+  id = String(id);
+
+  if (!sessions.has(id)) {
+    sessions.set(id, {
+      step: 0,
+      data: {},
+      expires: Date.now() + SESSION_TTL
+    });
+  }
+
+  const s = sessions.get(id);
+
+  if (Date.now() > s.expires) {
+    sessions.delete(id);
+    return { step: 0, data: {} };
+  }
+
+  return s;
 }
 
-async function setSession(id, session) {
-  await redis.set(`session:${id}`, JSON.stringify(session), 'EX', SESSION_TTL);
+function setSession(id, s) {
+  sessions.set(String(id), {
+    ...s,
+    expires: Date.now() + SESSION_TTL
+  });
 }
 
-async function resetSession(id) {
-  await redis.del(`session:${id}`);
+function resetSession(id) {
+  sessions.delete(String(id));
 }
+
+// cleanup
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, s] of sessions.entries()) {
+    if (now > s.expires) sessions.delete(id);
+  }
+}, 60000);
 
 // ========= START =========
 bot.onText(/\/start/, async (msg) => {
   const id = String(msg.from.id);
 
-  await resetSession(id);
+  resetSession(id);
 
-  await setSession(id, { step: 1, data: {} });
+  setSession(id, { step: 1, data: {} });
 
   enqueue(() => bot.sendMessage(msg.chat.id, '👋 Введи возраст:'));
 });
@@ -87,7 +169,7 @@ bot.on('message', async (msg) => {
   if (!msg.text || msg.text.startsWith('/')) return;
 
   const id = String(msg.from.id);
-  let s = await getSession(id);
+  let s = getSession(id);
 
   const text = msg.text.trim();
 
@@ -104,7 +186,7 @@ bot.on('message', async (msg) => {
       s.data.age = age;
       s.step = 2;
 
-      await setSession(id, s);
+      setSession(id, s);
 
       return enqueue(() =>
         bot.sendMessage(msg.chat.id, 'Выбери пол:', {
@@ -121,28 +203,21 @@ bot.on('message', async (msg) => {
     case 3:
       s.data.nickname = text;
       s.step = 4;
+      setSession(id, s);
 
-      await setSession(id, s);
-
-      return enqueue(() =>
-        bot.sendMessage(msg.chat.id, 'Кто пригласил?')
-      );
+      return enqueue(() => bot.sendMessage(msg.chat.id, 'Кто пригласил?'));
 
     case 4:
       s.data.friend = text;
       s.step = 5;
+      setSession(id, s);
 
-      await setSession(id, s);
-
-      return enqueue(() =>
-        bot.sendMessage(msg.chat.id, 'О себе:')
-      );
+      return enqueue(() => bot.sendMessage(msg.chat.id, 'О себе:'));
 
     case 5:
       s.data.about = text;
       s.step = 6;
-
-      await setSession(id, s);
+      setSession(id, s);
 
       const d = s.data;
 
@@ -173,7 +248,7 @@ ${d.about}`,
 // ========= CALLBACK =========
 bot.on('callback_query', async (q) => {
   const id = String(q.from.id);
-  let s = await getSession(id);
+  let s = getSession(id);
 
   if (!s || !s.step) {
     return bot.answerCallbackQuery(q.id, {
@@ -187,7 +262,7 @@ bot.on('callback_query', async (q) => {
     s.data.gender = q.data === 'gender_male' ? 'мужской' : 'женский';
     s.step = 3;
 
-    await setSession(id, s);
+    setSession(id, s);
 
     enqueue(() =>
       bot.editMessageReplyMarkup(
@@ -199,9 +274,7 @@ bot.on('callback_query', async (q) => {
       )
     );
 
-    enqueue(() =>
-      bot.sendMessage(id, 'Введи ник:')
-    );
+    enqueue(() => bot.sendMessage(id, 'Введи ник:'));
 
     return bot.answerCallbackQuery(q.id);
   }
@@ -218,11 +291,11 @@ bot.on('callback_query', async (q) => {
       about: s.data.about || 'не указано'
     };
 
-    // 🟢 авто-принятие
     if (!isNaN(ageNum) && ageNum >= 14) {
+      saveApplication(id, d, 'auto_accepted');
+
       enqueue(() =>
-        bot.sendMessage(
-          ADMIN_CHAT_ID,
+        bot.sendMessage(ADMIN_CHAT_ID,
 `🟢 Автопринятая заявка
 
 Возраст: ${d.age}
@@ -232,19 +305,15 @@ bot.on('callback_query', async (q) => {
 
 О себе:
 ${d.about}`,
-          { message_thread_id: ADMIN_THREAD_ID }
-        )
+        { message_thread_id: ADMIN_THREAD_ID })
       );
 
-      enqueue(() =>
-        bot.sendMessage(id, '✅ Заявка автоматически принята!')
-      );
-
+      enqueue(() => bot.sendMessage(id, '✅ Заявка автоматически принята!'));
     } else {
-      // 🟡 ручная модерация
+      saveApplication(id, d, 'pending');
+
       enqueue(() =>
-        bot.sendMessage(
-          ADMIN_CHAT_ID,
+        bot.sendMessage(ADMIN_CHAT_ID,
 `📥 Новая заявка
 
 Возраст: ${d.age}
@@ -254,21 +323,18 @@ ${d.about}`,
 
 О себе:
 ${d.about}`,
-          {
-            message_thread_id: ADMIN_THREAD_ID,
-            reply_markup: {
-              inline_keyboard: [[
-                { text: '✅ Принять', callback_data: `accept_${id}` },
-                { text: '❌ Отклонить', callback_data: `decline_${id}` }
-              ]]
-            }
+        {
+          message_thread_id: ADMIN_THREAD_ID,
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '✅ Принять', callback_data: `accept_${id}` },
+              { text: '❌ Отклонить', callback_data: `decline_${id}` }
+            ]]
           }
-        )
+        })
       );
 
-      enqueue(() =>
-        bot.sendMessage(id, '⏳ Заявка отправлена на рассмотрение')
-      );
+      enqueue(() => bot.sendMessage(id, '⏳ Заявка отправлена на рассмотрение'));
     }
 
     enqueue(() =>
@@ -281,7 +347,7 @@ ${d.about}`,
       )
     );
 
-    await resetSession(id);
+    resetSession(id);
 
     return bot.answerCallbackQuery(q.id);
   }
@@ -289,11 +355,14 @@ ${d.about}`,
   // ========= ADMIN =========
   if (q.data.startsWith('accept_') || q.data.startsWith('decline_')) {
     const target = q.data.split('_')[1];
+    const status = q.data.startsWith('accept_') ? 'accepted' : 'declined';
+
+    updateLastApplication(target, status);
 
     enqueue(() =>
       bot.sendMessage(
         target,
-        q.data.startsWith('accept_')
+        status === 'accepted'
           ? '✅ Заявка принята'
           : '❌ Заявка отклонена'
       )
@@ -303,7 +372,7 @@ ${d.about}`,
   }
 });
 
-// ========= START LOG =========
+// ========= START =========
 bot.getMe()
-  .then(() => console.log('🚀 BOT RUNNING (ANTI-FLOOD + REDIS)'))
+  .then(() => console.log('🚀 BOT RUNNING (FILE DB + STABLE)'))
   .catch(console.error);
