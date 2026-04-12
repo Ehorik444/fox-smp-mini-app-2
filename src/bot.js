@@ -13,10 +13,21 @@ const LOG_TOPIC_ID = 28258;
 
 const ADMINS = [5372937661, 2121418969];
 
+// ===== RULES =====
+const COOLDOWN_MS = 60 * 60 * 1000;        // 1 час
+const MAX_APPLICATIONS = 3;
+const DELETE_AFTER_MS = 7 * 24 * 60 * 60 * 1000; // 7 дней
+
 // ===== STATE =====
-const users = {};          // анкеты
-const pendingRejects = {}; // ожидание причины отказа
-const appMessages = {};    // message_id заявок
+const users = {};
+const pendingRejects = {};
+const appMessages = {};
+
+// история заявок
+const userStats = {}; // { chatId: { count, lastTime } }
+
+// заявки с датами
+const applicationsMeta = {}; // { chatId: { time, messageId } }
 
 // ===== TIME =====
 function getTime() {
@@ -48,9 +59,50 @@ async function addToWhitelist(nick) {
   await rcon.end();
 }
 
+// ===== CLEANUP OLD APPLICATIONS =====
+setInterval(async () => {
+  const now = Date.now();
+
+  for (const chatId in applicationsMeta) {
+    const app = applicationsMeta[chatId];
+
+    if (now - app.time > DELETE_AFTER_MS) {
+      try {
+        await bot.deleteMessage(FORUM_CHAT_ID, app.messageId);
+      } catch {}
+
+      delete applicationsMeta[chatId];
+      delete users[chatId];
+      delete appMessages[chatId];
+    }
+  }
+}, 60 * 60 * 1000); // каждый час
+
 // ===== START =====
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
+
+  if (!userStats[chatId]) {
+    userStats[chatId] = {
+      count: 0,
+      lastTime: 0
+    };
+  }
+
+  const stats = userStats[chatId];
+  const now = Date.now();
+
+  // админам без ограничений
+  if (!ADMINS.includes(chatId)) {
+    if (stats.count >= MAX_APPLICATIONS) {
+      return bot.sendMessage(chatId, "❌ Лимит заявок исчерпан (3 заявки максимум)");
+    }
+
+    if (now - stats.lastTime < COOLDOWN_MS) {
+      const left = Math.ceil((COOLDOWN_MS - (now - stats.lastTime)) / 60000);
+      return bot.sendMessage(chatId, `⏳ Подождите ${left} минут перед новой заявкой`);
+    }
+  }
 
   users[chatId] = {
     step: 1,
@@ -70,6 +122,14 @@ bot.on('callback_query', async (query) => {
 
   const user = users[targetChatId];
 
+  // ===== ADMIN CHECK =====
+  if (!ADMINS.includes(userId)) {
+    return bot.answerCallbackQuery(query.id, {
+      text: "⛔ Нет прав",
+      show_alert: true
+    });
+  }
+
   // ===== RESTART =====
   if (data === 'restart') {
     users[targetChatId] = {
@@ -77,16 +137,7 @@ bot.on('callback_query', async (query) => {
       username: query.from.username || "нет username"
     };
 
-    await bot.sendMessage(targetChatId, "📝 Начинаем новую заявку!\nВведите возраст:");
-    return bot.answerCallbackQuery(query.id);
-  }
-
-  // ===== ADMIN CHECK =====
-  if (!ADMINS.includes(userId)) {
-    return bot.answerCallbackQuery(query.id, {
-      text: "⛔ Нет прав",
-      show_alert: true
-    });
+    return bot.sendMessage(targetChatId, "📝 Начинаем новую заявку!\nВведите возраст:");
   }
 
   if (!user) {
@@ -110,20 +161,28 @@ bot.on('callback_query', async (query) => {
       });
 
       await sendLog(
-`✅ ЗАЯВКА ПРИНЯТА
+`✅ ПРИНЯТА
 
-👤 Админ: @${query.from.username || "no_username"} (${userId})
+👤 Админ: @${query.from.username || "no_username"}
 🎮 Игрок: ${user.mcNick}
-🕒 Время: ${getTime()}`
+🕒 ${getTime()}`
       );
 
+      // статистика
+      if (!userStats[targetChatId]) {
+        userStats[targetChatId] = { count: 0, lastTime: 0 };
+      }
+
+      userStats[targetChatId].count++;
+      userStats[targetChatId].lastTime = Date.now();
+
       delete users[targetChatId];
-      delete appMessages[targetChatId];
+      delete applicationsMeta[targetChatId];
 
-      return bot.answerCallbackQuery(query.id, { text: "Принято" });
+      return bot.answerCallbackQuery(query.id);
 
-    } catch (err) {
-      console.error(err);
+    } catch (e) {
+      console.error(e);
       return bot.answerCallbackQuery(query.id, { text: "RCON ошибка" });
     }
   }
@@ -132,8 +191,23 @@ bot.on('callback_query', async (query) => {
   if (action === 'reject') {
     pendingRejects[userId] = targetChatId;
 
-    await bot.sendMessage(userId, "❌ Введите причину отказа заявки:");
-    return bot.answerCallbackQuery(query.id);
+    return bot.sendMessage(
+      FORUM_CHAT_ID,
+      `✍️ Админ @${query.from.username || "no_username"} отклоняет заявку.\nНапишите причину:`,
+      { message_thread_id: LOG_TOPIC_ID }
+    );
+  }
+
+  // ===== RECONSIDER =====
+  if (action === 'reconsider') {
+    users[targetChatId] = {
+      ...users[targetChatId],
+      step: 5
+    };
+
+    return bot.sendMessage(targetChatId,
+      "🔁 Заявка отправлена на повторное рассмотрение."
+    );
   }
 });
 
@@ -152,26 +226,22 @@ bot.on('message', async (msg) => {
     const targetChatId = pendingRejects[msg.from.id];
     const targetUser = users[targetChatId];
 
-    if (!targetUser) {
-      delete pendingRejects[msg.from.id];
-      return;
-    }
+    if (!targetUser) return;
 
     const reason = text;
 
     await bot.sendMessage(targetChatId,
 `❌ Ваша заявка отклонена
 
-📌 Причина: ${reason}
-
-📝 Нажмите ниже, чтобы подать снова`,
-      {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "📝 Новая заявка", callback_data: "restart" }]
-          ]
-        }
-      });
+📌 Причина: ${reason}`,
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "📝 Новая заявка", callback_data: "restart" }],
+          [{ text: "🔁 Пересмотреть решение", callback_data: `reconsider:${targetChatId}` }]
+        ]
+      }
+    });
 
     const msgId = appMessages[targetChatId];
 
@@ -183,12 +253,12 @@ bot.on('message', async (msg) => {
     }
 
     await sendLog(
-`❌ ЗАЯВКА ОТКЛОНЕНА
+`❌ ОТКЛОНЕНА
 
-👤 Админ: @${msg.from.username || "no_username"} (${msg.from.id})
+👤 Админ: @${msg.from.username || "no_username"}
 🎮 Игрок: ${targetUser.mcNick}
-📌 Причина: ${reason}
-🕒 Время: ${getTime()}`
+📌 ${reason}
+🕒 ${getTime()}`
     );
 
     delete users[targetChatId];
@@ -203,27 +273,24 @@ bot.on('message', async (msg) => {
   if (user.step === 1) {
     user.age = text;
     user.step = 2;
-    return bot.sendMessage(chatId, "🎮 Введите ваш ник в Minecraft:");
+    return bot.sendMessage(chatId, "🎮 Ник Minecraft:");
   }
 
-  // ===== STEP 2 =====
   if (user.step === 2) {
     user.mcNick = text;
     user.step = 3;
-    return bot.sendMessage(chatId, "👥 Ник пригласившего друга:");
+    return bot.sendMessage(chatId, "👥 Пригласивший:");
   }
 
-  // ===== STEP 3 =====
   if (user.step === 3) {
     user.inviter = text;
     user.step = 4;
-    return bot.sendMessage(chatId, "🧾 О себе (минимум 24 символа):");
+    return bot.sendMessage(chatId, "🧾 О себе (24+ символа):");
   }
 
-  // ===== STEP 4 =====
   if (user.step === 4) {
     if (text.length < 24) {
-      return bot.sendMessage(chatId, "❌ Минимум 24 символа:");
+      return bot.sendMessage(chatId, "❌ Минимум 24 символа");
     }
 
     user.about = text;
@@ -232,13 +299,12 @@ bot.on('message', async (msg) => {
     const application =
 `📥 НОВАЯ ЗАЯВКА
 
-👤 Username: @${user.username}
-🎂 Возраст: ${user.age}
-🎮 Minecraft: ${user.mcNick}
-👥 Пригласил: ${user.inviter}
+👤 @${user.username}
+🎂 ${user.age}
+🎮 ${user.mcNick}
+👥 ${user.inviter}
 
-🧾 О себе:
-${user.about}`;
+🧾 ${user.about}`;
 
     const sent = await bot.sendMessage(
       FORUM_CHAT_ID,
@@ -258,7 +324,12 @@ ${user.about}`;
 
     appMessages[chatId] = sent.message_id;
 
-    return bot.sendMessage(chatId, "✅ Заявка отправлена!");
+    applicationsMeta[chatId] = {
+      time: Date.now(),
+      messageId: sent.message_id
+    };
+
+    return bot.sendMessage(chatId, "✅ Отправлено!");
   }
 });
 
