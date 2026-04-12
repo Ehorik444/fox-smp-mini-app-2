@@ -12,8 +12,8 @@ const ADMIN_IDS = new Set(['5372937661']);
 const COOLDOWN_MS = 60 * 60 * 1000;
 
 // ================= SAFETY =================
-process.on('unhandledRejection', e => console.error(e));
-process.on('uncaughtException', e => console.error(e));
+process.on('unhandledRejection', console.error);
+process.on('uncaughtException', console.error);
 
 // ================= RCON =================
 const RCON_CONFIG = {
@@ -22,128 +22,139 @@ const RCON_CONFIG = {
   password: process.env.RCON_PASSWORD
 };
 
-// ================= STORAGE =================
+// ================= STATE =================
 const sessions = new Map();
-const lastSubmission = new Map();
+const lastSubmit = new Map();
 const processed = new Set();
 
-// ================= STEPS =================
-const STEPS = ['age', 'gender', 'nickname', 'friend', 'about', 'confirm'];
-
-// ================= PROGRESS BAR =================
-function progress(i) {
-  const total = 5;
-  const cur = i + 1;
-  return `Шаг ${cur}/${total}\n[${'█'.repeat(cur)}${'░'.repeat(total - cur)}]`;
-}
+// ================= STRIPE STEPS =================
+const STEPS = [
+  { key: 'age', label: 'Возраст' },
+  { key: 'gender', label: 'Пол' },
+  { key: 'nickname', label: 'Ник' },
+  { key: 'friend', label: 'Пригласил' },
+  { key: 'about', label: 'О себе' }
+];
 
 // ================= SESSION =================
 function getSession(id) {
   id = String(id);
   if (!sessions.has(id)) {
-    sessions.set(id, { stepIndex: 0, data: {}, messageId: null });
+    sessions.set(id, { step: 0, data: {}, messageId: null });
   }
   return sessions.get(id);
 }
 
 function reset(id) {
-  sessions.set(String(id), { stepIndex: 0, data: {}, messageId: null });
+  sessions.set(String(id), { step: 0, data: {}, messageId: null });
+}
+
+// ================= STRIPE PROGRESS =================
+function progress(step) {
+  const total = STEPS.length;
+  const percent = Math.round((step / total) * 100);
+  const filled = Math.round((step / total) * 10);
+  return {
+    bar: '█'.repeat(filled) + '░'.repeat(10 - filled),
+    percent
+  };
+}
+
+// ================= STRIPE UI =================
+function render(s) {
+  const step = s.step;
+  const d = s.data;
+
+  const p = progress(step);
+
+  if (step >= STEPS.length) {
+    return {
+      text:
+`💳 Заявка
+
+[${p.bar}] ${p.percent}%
+
+Возраст: ${d.age}
+Пол: ${d.gender}
+Ник: ${d.nickname}
+Пригласил: ${d.friend}
+
+О себе:
+${d.about}
+
+Подтвердите отправку`,
+      keyboard: [
+        [{ text: 'Подтвердить', callback_data: 'submit' }],
+        [{ text: 'Назад', callback_data: 'back' }]
+      ]
+    };
+  }
+
+  const cur = STEPS[step];
+
+  return {
+    text:
+`💳 Заполнение заявки
+
+[${p.bar}] ${p.percent}%
+
+${step + 1}. ${cur.label}
+
+Введите значение:`,
+    keyboard: [
+      ...(step > 0 ? [[{ text: '← Назад', callback_data: 'back' }]] : []),
+      [{ text: '↻ Сброс', callback_data: 'restart' }]
+    ]
+  };
+}
+
+// ================= UPDATE UI =================
+async function updateUI(chatId, s) {
+  const ui = render(s);
+
+  if (!s.messageId) {
+    const msg = await bot.sendMessage(chatId, ui.text, {
+      reply_markup: { inline_keyboard: ui.keyboard }
+    });
+    s.messageId = msg.message_id;
+    return;
+  }
+
+  await bot.editMessageText(ui.text, {
+    chat_id: chatId,
+    message_id: s.messageId,
+    reply_markup: { inline_keyboard: ui.keyboard }
+  });
 }
 
 // ================= ANIMATION =================
-async function animate(chatId, session, renderFn) {
+async function animate(chatId, s, fn) {
   const frames = ['⏳', '⏳.', '⏳..', '⏳...'];
 
   try {
     for (const f of frames) {
       await bot.editMessageText(f, {
         chat_id: chatId,
-        message_id: session.messageId,
+        message_id: s.messageId,
         reply_markup: { inline_keyboard: [] }
       });
-
-      await new Promise(r => setTimeout(r, 70));
+      await new Promise(r => setTimeout(r, 60));
     }
 
-    const ui = renderFn();
-
-    await bot.editMessageText(ui.text, {
-      chat_id: chatId,
-      message_id: session.messageId,
-      reply_markup: { inline_keyboard: ui.keyboard }
-    });
+    fn();
+    await updateUI(chatId, s);
 
   } catch (e) {
-    console.error('ANIM ERROR:', e);
+    console.error(e);
   }
 }
 
-// ================= UI =================
-function render(session) {
-  const step = STEPS[session.stepIndex];
-  const d = session.data;
-
-  const texts = {
-    age: 'Введите возраст',
-    gender: 'Пол (мужской / женский)',
-    nickname: 'Введите ник',
-    friend: 'Кто пригласил?',
-    about: 'О себе (мин 24 символа)'
-  };
-
-  if (step === 'confirm') {
-    return {
-      text:
-`${progress(session.stepIndex)}
-
-Проверь данные:
-
-Возраст: ${d.age}
-Пол: ${d.gender}
-Ник: ${d.nickname}
-Пригласил: ${d.friend}
-О себе: ${d.about}
-
-Отправить заявку?`,
-      keyboard: [
-        [{ text: 'Отправить', callback_data: 'submit' }],
-        [{ text: 'Начать заново', callback_data: 'restart' }]
-      ]
-    };
-  }
-
-  return {
-    text: `${progress(session.stepIndex)}\n\n${texts[step]}`,
-    keyboard: session.stepIndex > 0
-      ? [[{ text: 'Назад', callback_data: 'back' }]]
-      : []
-  };
-}
-
-// ================= UI UPDATE =================
-async function updateUI(chatId, session) {
-  const ui = render(session);
-
-  try {
-    if (session.messageId) {
-      await bot.editMessageText(ui.text, {
-        chat_id: chatId,
-        message_id: session.messageId,
-        reply_markup: { inline_keyboard: ui.keyboard }
-      });
-      return;
-    }
-
-    const msg = await bot.sendMessage(chatId, ui.text, {
-      reply_markup: { inline_keyboard: ui.keyboard }
-    });
-
-    session.messageId = msg.message_id;
-
-  } catch (e) {
-    console.error('UI ERROR:', e);
-  }
-}
+// ================= START =================
+bot.onText(/\/start/, async (msg) => {
+  const s = getSession(msg.from.id);
+  reset(msg.from.id);
+  await updateUI(msg.chat.id, s);
+});
 
 // ================= RCON =================
 async function addToWhitelist(nick) {
@@ -155,14 +166,13 @@ async function addToWhitelist(nick) {
     const list = await rcon.send('whitelist list');
 
     if (list.includes(nick)) {
-      console.log(`⚠️ already exists: ${nick}`);
-      await rcon.end();
+      console.log('Already exists:', nick);
       return;
     }
 
     await rcon.send(`whitelist add ${nick}`);
 
-    console.log(`✅ whitelisted: ${nick}`);
+    console.log('WHITELISTED:', nick);
 
     await rcon.end();
 
@@ -172,29 +182,23 @@ async function addToWhitelist(nick) {
   }
 }
 
-// ================= START =================
-bot.onText(/\/start/, async (msg) => {
-  const s = getSession(msg.from.id);
-  reset(msg.from.id);
-  await updateUI(msg.chat.id, s);
-});
-
-// ================= CALLBACK =================
+// ================= CALLBACKS =================
 bot.on('callback_query', async (q) => {
+  const id = String(q.from.id);
+  const chatId = q.message.chat.id;
+  const s = getSession(id);
+
   try {
-    const id = String(q.from.id);
-    const chatId = q.message.chat.id;
-    const s = getSession(id);
 
     if (q.data === 'back') {
-      s.stepIndex = Math.max(0, s.stepIndex - 1);
-      await animate(chatId, s, () => render(s));
+      s.step = Math.max(0, s.step - 1);
+      await animate(chatId, s, () => {});
       return bot.answerCallbackQuery(q.id);
     }
 
     if (q.data === 'restart') {
       reset(id);
-      await animate(chatId, s, () => render(s));
+      await animate(chatId, s, () => {});
       return bot.answerCallbackQuery(q.id);
     }
 
@@ -202,11 +206,16 @@ bot.on('callback_query', async (q) => {
 
       const d = s.data;
 
-      if (!d.age || !d.gender || !d.nickname || !d.friend || !d.about) {
-        return bot.answerCallbackQuery(q.id, {
-          text: 'Заполните все поля',
-          show_alert: true
-        });
+      const now = Date.now();
+      if (!ADMIN_IDS.has(id)) {
+        const last = lastSubmit.get(id);
+        if (last && now - last < COOLDOWN_MS) {
+          return bot.answerCallbackQuery(q.id, {
+            text: 'Подождите 1 час',
+            show_alert: true
+          });
+        }
+        lastSubmit.set(id, now);
       }
 
       const userTag = q.from.username ? `@${q.from.username}` : 'no_username';
@@ -215,7 +224,7 @@ bot.on('callback_query', async (q) => {
 
       await bot.sendMessage(
         ADMIN_CHAT_ID,
-`📥 Новая заявка
+`📥 Заявка
 
 Пользователь: ${userTag}
 ID: ${id}
@@ -285,57 +294,55 @@ ${d.about}`,
     }
 
   } catch (e) {
-    console.error('CALLBACK ERROR:', e);
+    console.error(e);
   }
 });
 
 // ================= FSM =================
 bot.on('message', async (msg) => {
-  try {
-    if (!msg.text || msg.text.startsWith('/')) return;
+  if (!msg.text || msg.text.startsWith('/')) return;
 
-    const id = String(msg.from.id);
-    const s = getSession(id);
+  const id = String(msg.from.id);
+  const s = getSession(id);
 
-    const step = STEPS[s.stepIndex];
+  const step = STEPS[s.step];
 
-    if (step === 'age') {
-      const v = Number(msg.text);
-      if (!v) return;
-      s.data.age = v;
-      s.stepIndex++;
-      return animate(msg.chat.id, s, () => render(s));
-    }
+  if (!step) return;
 
-    if (step === 'gender') {
-      if (!['мужской', 'женский'].includes(msg.text.toLowerCase())) return;
-      s.data.gender = msg.text;
-      s.stepIndex++;
-      return animate(msg.chat.id, s, () => render(s));
-    }
+  const key = step.key;
 
-    if (step === 'nickname') {
-      s.data.nickname = msg.text.trim();
-      s.stepIndex++;
-      return animate(msg.chat.id, s, () => render(s));
-    }
+  if (key === 'age') {
+    if (!Number(msg.text)) return;
+    s.data.age = msg.text;
+    s.step++;
+    return animate(msg.chat.id, s, () => {});
+  }
 
-    if (step === 'friend') {
-      s.data.friend = msg.text.trim();
-      s.stepIndex++;
-      return animate(msg.chat.id, s, () => render(s));
-    }
+  if (key === 'gender') {
+    if (!['мужской', 'женский'].includes(msg.text.toLowerCase())) return;
+    s.data.gender = msg.text;
+    s.step++;
+    return animate(msg.chat.id, s, () => {});
+  }
 
-    if (step === 'about') {
-      if (msg.text.length < 24) return;
-      s.data.about = msg.text;
-      s.stepIndex++;
-      return animate(msg.chat.id, s, () => render(s));
-    }
+  if (key === 'nickname') {
+    s.data.nickname = msg.text;
+    s.step++;
+    return animate(msg.chat.id, s, () => {});
+  }
 
-  } catch (e) {
-    console.error('FSM ERROR:', e);
+  if (key === 'friend') {
+    s.data.friend = msg.text;
+    s.step++;
+    return animate(msg.chat.id, s, () => {});
+  }
+
+  if (key === 'about') {
+    if (msg.text.length < 24) return;
+    s.data.about = msg.text;
+    s.step++;
+    return animate(msg.chat.id, s, () => {});
   }
 });
 
-console.log('🚀 BOT READY (ANIMATED + PROGRESS + STABLE)');
+console.log('🚀 STRIPE-STYLE BOT RUNNING');
