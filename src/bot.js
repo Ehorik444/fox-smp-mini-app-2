@@ -1,41 +1,15 @@
-// ================= CLEAN PRODUCTION MODE =================
-
-// убирает NODE warnings
-process.removeAllListeners('warning');
-
-// глушит TLS / HTTPS debug (если случайно включён)
-process.env.NODE_DEBUG = '';
-process.env.DEBUG = '';
-
-// отключает лишние TLS/SSL от Node (частично убирает шум)
-if (!process.env.NODE_DEBUG) {
-  console.debug = () => {};
-}
-
-// глушим лишние системные логи библиотеки
-console.log = (function (orig) {
-  return function (...args) {
-    const msg = args.join(' ');
-
-    // фильтруем мусор TLS / HTTP / keepalive
-    if (
-      msg.includes('TLS') ||
-      msg.includes('SecureContext') ||
-      msg.includes('socket') ||
-      msg.includes('connect-options') ||
-      msg.includes('ReusedHandle')
-    ) return;
-
-    orig.apply(console, args);
-  };
-})(console.log);
-console.log("=== PRO BOT (FULL FIXED SECURITY + FSM) ===");
+console.log("=== PRO BOT (STABLE CLEAN VERSION) ===");
 
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const TelegramBot = require('node-telegram-bot-api');
 const { Rcon } = require('rcon-client');
+
+// ================= CLEAN ENV =================
+process.removeAllListeners('warning');
+process.env.NODE_DEBUG = '';
+process.env.DEBUG = '';
 
 // ================= FILE DB =================
 const DB_FILE = path.join(__dirname, 'applications.json');
@@ -52,7 +26,12 @@ function saveDB() {
 let db = loadDB();
 
 // ================= BOT =================
-const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
+const bot = new TelegramBot(process.env.BOT_TOKEN, {
+  polling: {
+    interval: 1000,
+    autoStart: true
+  }
+});
 
 // ================= CONFIG =================
 const FORUM_CHAT_ID = -1003255144076;
@@ -61,7 +40,7 @@ const LOG_TOPIC_ID = 28258;
 
 const ADMINS = [5372937661, 2121418969];
 
-// ================= FSM STATES =================
+// ================= FSM =================
 const STATES = {
   AGE: "AGE",
   MC_NICK: "MC_NICK",
@@ -70,7 +49,6 @@ const STATES = {
   DONE: "DONE"
 };
 
-// ================= ADMIN REJECT STATE =================
 let rejectTarget = null;
 
 // ================= HELPERS =================
@@ -80,8 +58,7 @@ function getUser(chatId) {
       chat_id: chatId,
       status: 'draft',
       state: STATES.AGE,
-      processing: false,
-      app_count: 0
+      processing: false
     };
     saveDB();
   }
@@ -93,39 +70,8 @@ function updateUser(chatId, data) {
   saveDB();
 }
 
-// ================= ANTI-SPAM =================
-const spamMap = new Map();
-
-function isSpam(chatId) {
-  const now = Date.now();
-  const last = spamMap.get(chatId) || 0;
-
-  if (now - last < 1200) return true;
-  spamMap.set(chatId, now);
-  return false;
-}
-
-// ================= RCON =================
-async function addToWhitelist(nick) {
-  const rcon = await Rcon.connect({
-    host: process.env.RCON_HOST,
-    port: Number(process.env.RCON_PORT),
-    password: process.env.RCON_PASSWORD
-  });
-
-  await rcon.send(`whitelist add ${nick}`);
-  await rcon.end();
-}
-
-// ================= LOG =================
-async function sendLog(text) {
-  return bot.sendMessage(FORUM_CHAT_ID, text, {
-    message_thread_id: LOG_TOPIC_ID
-  });
-}
-
 // ================= START =================
-bot.onText(/\/start/, async (msg) => {
+bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
 
   const username =
@@ -136,14 +82,13 @@ bot.onText(/\/start/, async (msg) => {
   updateUser(chatId, {
     username,
     status: 'draft',
-    state: STATES.AGE,
-    processing: false
+    state: STATES.AGE
   });
 
   bot.sendMessage(chatId, "📝 Заявка начата!\nВведите ваш возраст:");
 });
 
-// ================= SINGLE MESSAGE ROUTER =================
+// ================= MESSAGE ROUTER =================
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
@@ -171,13 +116,10 @@ bot.on('message', async (msg) => {
       message_id: app.message_id
     });
 
-    await sendLog(`❌ ОТКЛОНЕНА ${app.username || "unknown"} | ${text}`);
-
     return;
   }
 
-  // ================= USER FLOW =================
-  if (isSpam(chatId)) return;
+  // ================= USER GUARD =================
   if (user.status !== 'draft') return;
   if (user.processing) return;
 
@@ -243,18 +185,13 @@ bot.on('message', async (msg) => {
   }
 });
 
-// ================= CALLBACKS (FIXED SECURITY) =================
+// ================= CALLBACKS (SECURE) =================
 bot.on('callback_query', async (q) => {
   const adminId = q.from.id;
-  const data = q.data;
-
-  const [action, chatIdStr] = data.split(':');
+  const [action, chatIdStr] = q.data.split(':');
   const chatId = Number(chatIdStr);
 
-  const isAdmin = ADMINS.includes(adminId);
-
-  // 🔒 HARD SECURITY FIX (FIRST CHECK)
-  if (!isAdmin) {
+  if (!ADMINS.includes(adminId)) {
     return bot.answerCallbackQuery(q.id, {
       text: "⛔ Нет прав",
       show_alert: true
@@ -262,10 +199,7 @@ bot.on('callback_query', async (q) => {
   }
 
   const app = getUser(chatId);
-
-  if (!app) {
-    return bot.answerCallbackQuery(q.id, { text: "Нет заявки" });
-  }
+  if (!app) return bot.answerCallbackQuery(q.id, { text: "Нет заявки" });
 
   if (action === "accept") {
     await addToWhitelist(app.mc_nick);
@@ -279,17 +213,14 @@ bot.on('callback_query', async (q) => {
       message_id: app.message_id
     });
 
-    await sendLog(`✅ ПРИНЯТА ${app.username || "unknown"}`);
-
     return bot.answerCallbackQuery(q.id, { text: "OK" });
   }
 
   if (action === "reject") {
     rejectTarget = chatId;
-
     await bot.sendMessage(adminId, "Введите причину отказа:");
     return bot.answerCallbackQuery(q.id);
   }
 });
 
-console.log("Bot started (FULL FIXED SAFE VERSION)");
+console.log("Bot started (CLEAN STABLE VERSION)");
