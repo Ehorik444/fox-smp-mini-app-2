@@ -1,5 +1,4 @@
 const TelegramBot = require('node-telegram-bot-api');
-const { Rcon } = require('rcon-client');
 require('dotenv').config();
 
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
@@ -8,7 +7,7 @@ const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
 const ADMIN_CHAT_ID = -1003255144076;
 const ADMIN_THREAD_ID = 3567;
 
-const ADMIN_IDS = new Set(['5372937661']); // строка обязательно
+const ADMIN_IDS = new Set(['5372937661']);
 
 const COOLDOWN_MS = 60 * 60 * 1000;
 
@@ -67,7 +66,7 @@ function render(session) {
     };
   }
 
-  const map = {
+  const texts = {
     age: '📋 Шаг 1/5: Введите возраст',
     gender: '📋 Шаг 2/5: Пол (мужской / женский)',
     nickname: '📋 Шаг 3/5: Введите ник',
@@ -81,12 +80,12 @@ function render(session) {
   }
 
   return {
-    text: map[step],
+    text: texts[step],
     keyboard
   };
 }
 
-// ================= SEND / EDIT =================
+// ================= UI UPDATE =================
 async function updateUI(chatId, session) {
   const ui = render(session);
 
@@ -136,19 +135,20 @@ bot.on('callback_query', async (q) => {
     // ================= BACK =================
     if (q.data === 'back') {
       session.stepIndex = Math.max(0, session.stepIndex - 1);
-      return updateUI(chatId, session).finally(() => bot.answerCallbackQuery(q.id));
+      await updateUI(chatId, session);
+      return bot.answerCallbackQuery(q.id);
     }
 
     // ================= RESTART =================
     if (q.data === 'restart') {
       reset(userId);
-      return updateUI(chatId, session).finally(() => bot.answerCallbackQuery(q.id));
+      await updateUI(chatId, session);
+      return bot.answerCallbackQuery(q.id);
     }
 
-    // ================= START APPLY =================
+    // ================= APPLY =================
     if (q.data === 'start_apply') {
 
-      // 🔥 FIX: cooldown НЕ для админов
       if (!ADMIN_IDS.has(userId)) {
         const last = lastSubmission.get(userId);
         const now = Date.now();
@@ -179,7 +179,6 @@ bot.on('callback_query', async (q) => {
 
       const d = session.data;
 
-      // 🔥 FIX: cooldown только для не-админов
       if (!ADMIN_IDS.has(userId)) {
         const last = lastSubmission.get(userId);
         const now = Date.now();
@@ -268,19 +267,20 @@ ID: ${userId}
   }
 });
 
-// ================= INPUT =================
+// ================= MESSAGE FSM (FIXED 3rd STEP BUG) =================
 bot.on('message', async (msg) => {
-  if (!msg.text || msg.text.startsWith('/')) return;
+  try {
+    if (!msg.text || msg.text.startsWith('/')) return;
 
-  const userId = String(msg.from.id);
-  const chatId = msg.chat.id;
-  const session = getSession(userId);
+    const userId = String(msg.from.id);
+    const chatId = msg.chat.id;
+    const session = getSession(userId);
 
-  const step = STEPS[session.stepIndex];
+    const step = STEPS[session.stepIndex];
+    if (!step) return;
 
-  switch (step) {
-
-    case 'age': {
+    // AGE
+    if (step === 'age') {
       const age = Number(msg.text);
       if (!age || age < 10 || age > 100) return;
       session.data.age = age;
@@ -288,7 +288,8 @@ bot.on('message', async (msg) => {
       return updateUI(chatId, session);
     }
 
-    case 'gender': {
+    // GENDER
+    if (step === 'gender') {
       const g = msg.text.toLowerCase();
       if (!['мужской', 'женский'].includes(g)) return;
       session.data.gender = g;
@@ -296,22 +297,29 @@ bot.on('message', async (msg) => {
       return updateUI(chatId, session);
     }
 
-    case 'nickname':
-      session.data.nickname = msg.text;
+    // 🔥 FIXED STEP (nickname bug was here)
+    if (step === 'nickname') {
+      session.data.nickname = msg.text.trim();
       session.stepIndex++;
       return updateUI(chatId, session);
+    }
 
-    case 'friend':
-      session.data.friend = msg.text;
+    if (step === 'friend') {
+      session.data.friend = msg.text.trim();
       session.stepIndex++;
       return updateUI(chatId, session);
+    }
 
-    case 'about':
+    if (step === 'about') {
       if (msg.text.length < 24) return;
       session.data.about = msg.text;
       session.stepIndex++;
       return updateUI(chatId, session);
+    }
+
+  } catch (e) {
+    console.error('FSM ERROR:', e);
   }
 });
 
-console.log('🚀 BOT RUNNING (FIXED VERSION)');
+console.log('🚀 BOT RUNNING STABLE VERSION');
