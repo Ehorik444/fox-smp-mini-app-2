@@ -19,7 +19,7 @@ const STEPS = [
   { key: 'about', label: 'О себе' }
 ];
 
-// ================= SAFE WRAPPER =================
+// ================= SAFE =================
 async function safe(fn) {
   try {
     return await fn();
@@ -67,13 +67,12 @@ function reset(id) {
 // ================= UI =================
 function render(s) {
   const d = s.data;
-  const step = s.step;
 
   const total = STEPS.length;
-  const percent = Math.round((step / total) * 100);
-  const bar = '█'.repeat(Math.round((step / total) * 10)) + '░'.repeat(10 - Math.round((step / total) * 10));
+  const percent = Math.round((s.step / total) * 100);
+  const bar = '█'.repeat(Math.round((s.step / total) * 10)) + '░'.repeat(10 - Math.round((s.step / total) * 10));
 
-  if (step >= STEPS.length) {
+  if (s.step >= STEPS.length) {
     return {
       text: `💳 Заявка
 
@@ -95,24 +94,24 @@ ${d.about}
     };
   }
 
-  const cur = STEPS[step];
+  const cur = STEPS[s.step];
 
   return {
     text: `💳 Заполнение заявки
 
 [${bar}] ${percent}%
 
-${step + 1}. ${cur.label}
+${s.step + 1}. ${cur.label}
 
 Введите значение:`,
     keyboard: [
-      ...(step > 0 ? [[{ text: '← Назад', callback_data: 'back' }]] : []),
+      ...(s.step > 0 ? [[{ text: '← Назад', callback_data: 'back' }]] : []),
       [{ text: '↻ Сброс', callback_data: 'restart' }]
     ]
   };
 }
 
-// ================= UI UPDATE =================
+// ================= UPDATE UI =================
 async function updateUI(chatId, s) {
   const ui = render(s);
 
@@ -140,7 +139,7 @@ async function updateUI(chatId, s) {
   );
 }
 
-// ================= CALLBACKS =================
+// ================= CALLBACK =================
 bot.on('callback_query', async (q) => {
   if (!q?.message?.chat) return;
 
@@ -150,6 +149,7 @@ bot.on('callback_query', async (q) => {
 
   try {
 
+    // RESET
     if (q.data === 'restart') {
       if (s.messageId) {
         await safe(() => bot.deleteMessage(chatId, s.messageId));
@@ -163,6 +163,7 @@ bot.on('callback_query', async (q) => {
       return safe(() => bot.answerCallbackQuery(q.id));
     }
 
+    // BACK
     if (q.data === 'back') {
       s.step = Math.max(0, s.step - 1);
       await updateUI(chatId, s);
@@ -170,10 +171,10 @@ bot.on('callback_query', async (q) => {
       return safe(() => bot.answerCallbackQuery(q.id));
     }
 
+    // SUBMIT
     if (q.data === 'submit') {
       const d = s.data;
 
-      // 🔥 защита от undefined
       if (!d.age || !d.gender || !d.nickname || !d.friend || !d.about) {
         return safe(() =>
           bot.answerCallbackQuery(q.id, {
@@ -183,11 +184,10 @@ bot.on('callback_query', async (q) => {
         );
       }
 
-      // ================= SEND TO FORUM (FIXED) =================
       await safe(() =>
         bot.sendMessage(
           ADMIN_CHAT_ID,
-          `📥 Заявка
+`📥 Заявка
 
 Возраст: ${d.age}
 Пол: ${d.gender}
@@ -197,7 +197,13 @@ bot.on('callback_query', async (q) => {
 О себе:
 ${d.about}`,
           {
-            message_thread_id: ADMIN_THREAD_ID
+            message_thread_id: ADMIN_THREAD_ID,
+            reply_markup: {
+              inline_keyboard: [[
+                { text: '✅ Принять', callback_data: `accept_${id}` },
+                { text: '❌ Отклонить', callback_data: `decline_${id}` }
+              ]]
+            }
           }
         )
       );
@@ -205,6 +211,22 @@ ${d.about}`,
       reset(id);
 
       await safe(() => bot.sendMessage(chatId, 'Заявка отправлена'));
+
+      return safe(() => bot.answerCallbackQuery(q.id));
+    }
+
+    // ADMIN ACTIONS
+    if (q.data.startsWith('accept_') || q.data.startsWith('decline_')) {
+      const target = q.data.split('_')[1];
+
+      await safe(() =>
+        bot.sendMessage(
+          target,
+          q.data.startsWith('accept_')
+            ? 'Заявка принята ✅'
+            : 'Заявка отклонена ❌'
+        )
+      );
 
       return safe(() => bot.answerCallbackQuery(q.id));
     }
@@ -220,10 +242,6 @@ bot.on('message', async (msg) => {
 
   const id = String(msg.from.id);
   const s = getSession(id);
-
-  if (!Number.isInteger(s.step) || s.step < 0 || s.step >= STEPS.length) {
-    s.step = 0;
-  }
 
   const stepObj = STEPS[s.step];
   if (!stepObj) return;
@@ -265,4 +283,4 @@ bot.on('message', async (msg) => {
   await updateUI(msg.chat.id, s);
 });
 
-console.log('🚀 BOT FULLY FIXED + FORUM WORKING');
+console.log('🚀 BOT FULLY FIXED + ADMIN BUTTONS WORKING');
