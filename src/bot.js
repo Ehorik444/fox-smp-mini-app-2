@@ -304,7 +304,7 @@ bot.on('callback_query', async (q) => {
 🕒 ${formatDate()}
 `;
 
-    await safeSend(chatId, "🎉 Вы приняты!");
+    await safeSend(chatId, "🎉 Вы приняты! вот айпи сервера: fox-smp.com");
     await safeEdit(logText, app);
 
     return bot.answerCallbackQuery(q.id, { text: "OK" });
