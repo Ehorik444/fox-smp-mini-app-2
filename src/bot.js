@@ -1,207 +1,121 @@
-const { Telegraf, Markup, Scenes, session } = require("telegraf");
-const fs = require("fs");
-const { Rcon } = require("rcon-client");
+// FSM-based Telegram bot (clean + scalable) const TelegramBot = require('node-telegram-bot-api'); const { Rcon } = require('rcon-client'); require('dotenv').config();
 
-// ================== CONFIG ==================
-const BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN";
-const ADMIN_CHAT_ID = -1001234567890; // чат админов
+const token = process.env.TELEGRAM_BOT_TOKEN; if (!token) throw new Error('TELEGRAM_BOT_TOKEN missing');
 
-const RCON_CONFIG = {
-    host: "127.0.0.1",
-    port: 25575,
-    password: "your_rcon_password",
-};
+const bot = new TelegramBot(token, { polling: true });
 
-// ================== STORAGE ==================
-const DB_FILE = "./db.json";
+// ================= FSM ================= const STATES = { IDLE: 'idle', AGE: 'age', GENDER: 'gender', NICKNAME: 'nickname', FRIEND: 'friend', ABOUT: 'about', CONFIRM: 'confirm' };
 
-function loadDB() {
-    if (!fs.existsSync(DB_FILE)) {
-        return { applications: {}, cooldowns: {} };
-    }
-    return JSON.parse(fs.readFileSync(DB_FILE));
+const sessions = new Map(); // userId -> session
+
+function getSession(userId) { if (!sessions.has(userId)) { sessions.set(userId, { state: STATES.IDLE, data: {} }); } return sessions.get(userId); }
+
+function resetSession(userId) { sessions.set(userId, { state: STATES.IDLE, data: {} }); }
+
+// ================= CONFIG ================= const ADMIN_IDS = new Set([5372937661, 2121418969]); const submitted = new Set();
+
+const RCON_CONFIG = { host: process.env.RCON_HOST, port: parseInt(process.env.RCON_PORT) || 25575, password: process.env.RCON_PASSWORD };
+
+// ================= UI ================= const mainMenu = { inline_keyboard: [ [{ text: '📝 Подать заявку', callback_data: 'start_apply' }] ] };
+
+// ================= START ================= bot.onText(//start/, (msg) => { bot.sendMessage(msg.chat.id, 'Добро пожаловать!', { reply_markup: mainMenu }); });
+
+// ================= CALLBACK ================= bot.on('callback_query', async (q) => { const userId = q.from.id; const chatId = q.message.chat.id; const session = getSession(userId);
+
+try { if (q.data === 'start_apply') { if (submitted.has(userId)) { return bot.answerCallbackQuery(q.id, { text: 'Вы уже подавали заявку', show_alert: true }); }
+
+session.state = STATES.AGE;
+  session.data = {};
+
+  await bot.editMessageText('Введите возраст:', {
+    chat_id: chatId,
+    message_id: q.message.message_id
+  });
+
+  return bot.answerCallbackQuery(q.id);
 }
 
-function saveDB() {
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+if (q.data === 'confirm') {
+  const data = session.data;
+  submitted.add(userId);
+
+  await bot.sendMessage(chatId, 'Заявка отправлена ✅');
+
+  resetSession(userId);
+  return bot.answerCallbackQuery(q.id);
 }
 
-let db = loadDB();
+if (q.data === 'restart') {
+  session.state = STATES.AGE;
+  session.data = {};
 
-// ================== RCON ==================
-async function addToWhitelist(nick) {
-    try {
-        const rcon = await Rcon.connect(RCON_CONFIG);
-        const res = await rcon.send(`whitelist add ${nick}`);
-        await rcon.send(`say Игрок ${nick} добавлен в вайтлист`);
-        await rcon.end();
-        console.log("RCON:", res);
-    } catch (err) {
-        console.error("RCON ERROR:", err);
-    }
+  await bot.editMessageText('Введите возраст:', {
+    chat_id: chatId,
+    message_id: q.message.message_id
+  });
+
+  return bot.answerCallbackQuery(q.id);
 }
 
-// ================== BOT ==================
-const bot = new Telegraf(BOT_TOKEN);
+} catch (e) { console.error(e); } });
 
-// ================== FORM SCENE ==================
-const applyScene = new Scenes.WizardScene(
-    "apply-wizard",
+// ================= MESSAGE FSM ================= bot.on('message', async (msg) => { const userId = msg.from.id; const chatId = msg.chat.id; const text = msg.text;
 
-    async (ctx) => {
-        ctx.wizard.state.data = {};
-        await ctx.reply("Введите ваш ник в Minecraft:");
-        return ctx.wizard.next();
-    },
+if (!text) return;
 
-    async (ctx) => {
-        ctx.wizard.state.data.nick = ctx.message.text;
-        await ctx.reply("Ник друга, который вас пригласил:");
-        return ctx.wizard.next();
-    },
+const session = getSession(userId);
 
-    async (ctx) => {
-        ctx.wizard.state.data.friend = ctx.message.text;
-        await ctx.reply("Ваш возраст:");
-        return ctx.wizard.next();
-    },
+switch (session.state) {
 
-    async (ctx) => {
-        ctx.wizard.state.data.age = ctx.message.text;
-        await ctx.reply("Ваш пол:");
-        return ctx.wizard.next();
-    },
+case STATES.AGE:
+  if (!/^\d+$/.test(text)) {
+    return bot.sendMessage(chatId, 'Введите число');
+  }
+  session.data.age = text;
+  session.state = STATES.GENDER;
+  return bot.sendMessage(chatId, 'Пол: мужской / женский');
 
-    async (ctx) => {
-        ctx.wizard.state.data.gender = ctx.message.text;
-        await ctx.reply("Расскажите о себе (минимум 24 символа):");
-        return ctx.wizard.next();
-    },
+case STATES.GENDER:
+  if (!['мужской','женский'].includes(text.toLowerCase())) {
+    return bot.sendMessage(chatId, 'Ошибка ввода');
+  }
+  session.data.gender = text;
+  session.state = STATES.NICKNAME;
+  return bot.sendMessage(chatId, 'Введите ник');
 
-    async (ctx) => {
-        const about = ctx.message.text;
+case STATES.NICKNAME:
+  session.data.nickname = text;
+  session.state = STATES.FRIEND;
+  return bot.sendMessage(chatId, 'Кто пригласил?');
 
-        if (about.length < 24) {
-            return ctx.reply("❌ Минимум 24 символа. Попробуйте снова.");
-        }
+case STATES.FRIEND:
+  session.data.friend = text;
+  session.state = STATES.ABOUT;
+  return bot.sendMessage(chatId, 'О себе (мин 24 символа)');
 
-        const userId = ctx.from.id;
-        const username = ctx.from.username || "no_username";
+case STATES.ABOUT:
+  if (text.length < 24) {
+    return bot.sendMessage(chatId, 'Слишком коротко');
+  }
 
-        // cooldown check
-        const last = db.cooldowns[userId] || 0;
-        const now = Date.now();
+  session.data.about = text;
+  session.state = STATES.CONFIRM;
 
-        if (now - last < 3600 * 1000) {
-            return ctx.reply("⏳ Вы можете подать заявку раз в 1 час.");
-        }
-
-        const id = Date.now().toString();
-
-        const app = {
-            id,
-            userId,
-            username,
-            ...ctx.wizard.state.data,
-            about,
-            status: "pending",
-            createdAt: now,
-        };
-
-        db.applications[id] = app;
-        db.cooldowns[userId] = now;
-        saveDB();
-
-        const text =
-`📥 НОВАЯ ЗАЯВКА
-
-👤 Telegram: @${username}
-🎮 Ник: ${app.nick}
-👥 Друг: ${app.friend}
-🎂 Возраст: ${app.age}
-⚧ Пол: ${app.gender}
-📝 О себе: ${app.about}`;
-
-        await ctx.telegram.sendMessage(
-            ADMIN_CHAT_ID,
-            text,
-            Markup.inlineKeyboard([
-                Markup.button.callback("✅ Принять", `accept_${id}`),
-                Markup.button.callback("❌ Отклонить", `reject_${id}`)
-            ])
-        );
-
-        await ctx.reply("✅ Заявка отправлена на рассмотрение!");
-        return ctx.scene.leave();
+  return bot.sendMessage(chatId,
+    `Проверь:\nВозраст: ${session.data.age}\nНик: ${session.data.nickname}`,
+    {
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '✅ Да', callback_data: 'confirm' },
+          { text: '❌ Заново', callback_data: 'restart' }
+        ]]
+      }
     }
-);
+  );
 
-// ================== SCENE MANAGER ==================
-const stage = new Scenes.Stage([applyScene]);
+default:
+  return;
 
-bot.use(session());
-bot.use(stage.middleware());
+} });
 
-// ================== COMMANDS ==================
-bot.start((ctx) => {
-    ctx.reply("Напишите /apply чтобы подать заявку на сервер.");
-});
-
-bot.command("apply", async (ctx) => {
-    ctx.scene.enter("apply-wizard");
-});
-
-// ================== CALLBACK HANDLERS ==================
-bot.on("callback_query", async (ctx) => {
-    const data = ctx.callbackQuery.data;
-
-    if (!data) return;
-
-    const [action, id] = data.split("_");
-    const app = db.applications[id];
-
-    if (!app) {
-        return ctx.reply("❌ Заявка не найдена (возможно уже обработана).");
-    }
-
-    if (app.status !== "pending") {
-        return ctx.reply("⚠️ Эта заявка уже обработана.");
-    }
-
-    if (action === "accept") {
-        app.status = "accepted";
-        saveDB();
-
-        await addToWhitelist(app.nick);
-
-        await ctx.telegram.sendMessage(
-            app.userId,
-            "✅ Ваша заявка одобрена! Вы добавлены в whitelist сервера."
-        );
-
-        await ctx.editMessageText(ctx.callbackQuery.message.text + "\n\n✅ ПРИНЯТА");
-    }
-
-    if (action === "reject") {
-        app.status = "rejected";
-        saveDB();
-
-        await ctx.telegram.sendMessage(
-            app.userId,
-            "❌ Ваша заявка отклонена. Вы можете подать новую через 1 час."
-        );
-
-        await ctx.editMessageText(ctx.callbackQuery.message.text + "\n\n❌ ОТКЛОНЕНА");
-    }
-
-    await ctx.answerCbQuery();
-});
-
-// ================== START BOT ==================
-bot.launch();
-
-console.log("Bot started...");
-
-// graceful shutdown
-process.once("SIGINT", () => bot.stop("SIGINT"));
-process.once("SIGTERM", () => bot.stop("SIGTERM"));
+console.log('FSM bot started');
