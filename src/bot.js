@@ -1,6 +1,7 @@
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const { Rcon } = require('rcon-client');
+const fs = require('fs');
 
 const bot = new TelegramBot(process.env.BOT_TOKEN, {
   polling: true
@@ -13,21 +14,42 @@ const LOG_TOPIC_ID = 28258;
 
 const ADMINS = [5372937661, 2121418969];
 
-// ===== RULES =====
-const COOLDOWN_MS = 60 * 60 * 1000;        // 1 час
+const COOLDOWN_MS = 60 * 60 * 1000;
 const MAX_APPLICATIONS = 3;
-const DELETE_AFTER_MS = 7 * 24 * 60 * 60 * 1000; // 7 дней
+const DELETE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
-// ===== STATE =====
+// ===== FILE STORAGE =====
+const DATA_FILE = './data.json';
+
+function loadData() {
+  try {
+    if (!fs.existsSync(DATA_FILE)) return { userStats: {}, applicationsMeta: {} };
+    return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+  } catch (e) {
+    console.error("LOAD ERROR:", e);
+    return { userStats: {}, applicationsMeta: {} };
+  }
+}
+
+function saveData() {
+  try {
+    fs.writeFileSync(DATA_FILE, JSON.stringify({
+      userStats,
+      applicationsMeta
+    }, null, 2));
+  } catch (e) {
+    console.error("SAVE ERROR:", e);
+  }
+}
+
+const data = loadData();
+const userStats = data.userStats || {};
+const applicationsMeta = data.applicationsMeta || {};
+
+// ===== MEMORY =====
 const users = {};
 const pendingRejects = {};
 const appMessages = {};
-
-// история заявок
-const userStats = {}; // { chatId: { count, lastTime } }
-
-// заявки с датами
-const applicationsMeta = {}; // { chatId: { time, messageId } }
 
 // ===== TIME =====
 function getTime() {
@@ -59,7 +81,7 @@ async function addToWhitelist(nick) {
   await rcon.end();
 }
 
-// ===== CLEANUP OLD APPLICATIONS =====
+// ===== CLEANUP OLD =====
 setInterval(async () => {
   const now = Date.now();
 
@@ -72,35 +94,30 @@ setInterval(async () => {
       } catch {}
 
       delete applicationsMeta[chatId];
-      delete users[chatId];
-      delete appMessages[chatId];
+      saveData();
     }
   }
-}, 60 * 60 * 1000); // каждый час
+}, 60 * 60 * 1000);
 
 // ===== START =====
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
 
   if (!userStats[chatId]) {
-    userStats[chatId] = {
-      count: 0,
-      lastTime: 0
-    };
+    userStats[chatId] = { count: 0, lastTime: 0 };
   }
 
   const stats = userStats[chatId];
   const now = Date.now();
 
-  // админам без ограничений
   if (!ADMINS.includes(chatId)) {
     if (stats.count >= MAX_APPLICATIONS) {
-      return bot.sendMessage(chatId, "❌ Лимит заявок исчерпан (3 заявки максимум)");
+      return bot.sendMessage(chatId, "❌ Лимит 3 заявки исчерпан");
     }
 
     if (now - stats.lastTime < COOLDOWN_MS) {
       const left = Math.ceil((COOLDOWN_MS - (now - stats.lastTime)) / 60000);
-      return bot.sendMessage(chatId, `⏳ Подождите ${left} минут перед новой заявкой`);
+      return bot.sendMessage(chatId, `⏳ Подождите ${left} минут`);
     }
   }
 
@@ -109,7 +126,7 @@ bot.onText(/\/start/, (msg) => {
     username: msg.from.username || "нет username"
   };
 
-  bot.sendMessage(chatId, "📝 Заявка начата!\nВведите ваш возраст:");
+  bot.sendMessage(chatId, "📝 Введите возраст:");
 });
 
 // ===== CALLBACKS =====
@@ -122,7 +139,15 @@ bot.on('callback_query', async (query) => {
 
   const user = users[targetChatId];
 
-  // ===== ADMIN CHECK =====
+  if (data === 'restart') {
+    users[targetChatId] = {
+      step: 1,
+      username: query.from.username || "нет username"
+    };
+
+    return bot.sendMessage(targetChatId, "📝 Начинаем заново:\nВведите возраст:");
+  }
+
   if (!ADMINS.includes(userId)) {
     return bot.answerCallbackQuery(query.id, {
       text: "⛔ Нет прав",
@@ -130,19 +155,9 @@ bot.on('callback_query', async (query) => {
     });
   }
 
-  // ===== RESTART =====
-  if (data === 'restart') {
-    users[targetChatId] = {
-      step: 1,
-      username: query.from.username || "нет username"
-    };
-
-    return bot.sendMessage(targetChatId, "📝 Начинаем новую заявку!\nВведите возраст:");
-  }
-
   if (!user) {
     return bot.answerCallbackQuery(query.id, {
-      text: "Заявка уже обработана"
+      text: "Уже обработано"
     });
   }
 
@@ -152,29 +167,17 @@ bot.on('callback_query', async (query) => {
       await addToWhitelist(user.mcNick);
 
       await bot.sendMessage(targetChatId,
-        "🎉 Ваша заявка принята! Вы добавлены в whitelist."
+        "🎉 Ваша заявка принята!"
       );
 
-      await bot.editMessageText("✅ ЗАЯВКА ПРИНЯТА", {
+      await bot.editMessageText("✅ ПРИНЯТО", {
         chat_id: FORUM_CHAT_ID,
         message_id: query.message.message_id
       });
 
-      await sendLog(
-`✅ ПРИНЯТА
-
-👤 Админ: @${query.from.username || "no_username"}
-🎮 Игрок: ${user.mcNick}
-🕒 ${getTime()}`
-      );
-
-      // статистика
-      if (!userStats[targetChatId]) {
-        userStats[targetChatId] = { count: 0, lastTime: 0 };
-      }
-
       userStats[targetChatId].count++;
       userStats[targetChatId].lastTime = Date.now();
+      saveData();
 
       delete users[targetChatId];
       delete applicationsMeta[targetChatId];
@@ -193,7 +196,7 @@ bot.on('callback_query', async (query) => {
 
     return bot.sendMessage(
       FORUM_CHAT_ID,
-      `✍️ Админ @${query.from.username || "no_username"} отклоняет заявку.\nНапишите причину:`,
+      `✍️ Админ @${query.from.username || "no_username"} пишет причину отказа:`,
       { message_thread_id: LOG_TOPIC_ID }
     );
   }
@@ -206,7 +209,7 @@ bot.on('callback_query', async (query) => {
     };
 
     return bot.sendMessage(targetChatId,
-      "🔁 Заявка отправлена на повторное рассмотрение."
+      "🔁 Заявка отправлена на пересмотр"
     );
   }
 });
@@ -226,19 +229,19 @@ bot.on('message', async (msg) => {
     const targetChatId = pendingRejects[msg.from.id];
     const targetUser = users[targetChatId];
 
-    if (!targetUser) return;
-
     const reason = text;
 
+    if (!targetUser) return;
+
     await bot.sendMessage(targetChatId,
-`❌ Ваша заявка отклонена
+`❌ Отклонено
 
 📌 Причина: ${reason}`,
     {
       reply_markup: {
         inline_keyboard: [
           [{ text: "📝 Новая заявка", callback_data: "restart" }],
-          [{ text: "🔁 Пересмотреть решение", callback_data: `reconsider:${targetChatId}` }]
+          [{ text: "🔁 Пересмотреть", callback_data: `reconsider:${targetChatId}` }]
         ]
       }
     });
@@ -246,14 +249,14 @@ bot.on('message', async (msg) => {
     const msgId = appMessages[targetChatId];
 
     if (msgId) {
-      await bot.editMessageText("❌ ЗАЯВКА ОТКЛОНЕНА", {
+      await bot.editMessageText("❌ ОТКЛОНЕНО", {
         chat_id: FORUM_CHAT_ID,
         message_id: msgId
       });
     }
 
     await sendLog(
-`❌ ОТКЛОНЕНА
+`❌ ОТКЛОНЕНО
 
 👤 Админ: @${msg.from.username || "no_username"}
 🎮 Игрок: ${targetUser.mcNick}
@@ -269,7 +272,6 @@ bot.on('message', async (msg) => {
 
   if (!user) return;
 
-  // ===== STEP 1 =====
   if (user.step === 1) {
     user.age = text;
     user.step = 2;
@@ -328,6 +330,8 @@ bot.on('message', async (msg) => {
       time: Date.now(),
       messageId: sent.message_id
     };
+
+    saveData();
 
     return bot.sendMessage(chatId, "✅ Отправлено!");
   }
