@@ -3,6 +3,10 @@ const TelegramBot = require('node-telegram-bot-api');
 const { Rcon } = require('rcon-client');
 const { Pool } = require('pg');
 
+// 🔥 УБИВАЕМ любые SSL из окружения
+delete process.env.PGSSLMODE;
+delete process.env.DATABASE_URL;
+
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
 // ===== CONFIG =====
@@ -12,18 +16,9 @@ const LOG_TOPIC_ID = 28258;
 
 const ADMINS = [5372937661, 2121418969];
 
-// ===== DB (FIXED SSL) =====
+// ===== DB (ЖЁСТКИЙ FIX SSL) =====
 const pool = new Pool({
-  host: process.env.PGHOST,
-  port: Number(process.env.PGPORT),
-  user: process.env.PGUSER,
-  password: process.env.PGPASSWORD,
-  database: process.env.PGDATABASE,
-
-  // 🔥 FIX: правильный режим для хостингов
-  ssl: {
-    rejectUnauthorized: false
-  }
+  connectionString: `postgresql://${process.env.PGUSER}:${process.env.PGPASSWORD}@${process.env.PGHOST}:${process.env.PGPORT}/${process.env.PGDATABASE}?sslmode=disable`
 });
 
 // ===== ANTI-SPAM =====
