@@ -8,7 +8,6 @@ const ADMIN_CHAT_ID = -1003255144076;
 const ADMIN_THREAD_ID = 3567;
 
 const ADMIN_IDS = new Set(['5372937661']);
-
 const COOLDOWN_MS = 60 * 60 * 1000;
 
 // ================= STORAGE =================
@@ -105,7 +104,7 @@ async function updateUI(chatId, session) {
     session.messageId = msg.message_id;
     return msg;
 
-  } catch (e) {
+  } catch {
     const msg = await bot.sendMessage(chatId, ui.text, {
       reply_markup: { inline_keyboard: ui.keyboard }
     });
@@ -132,53 +131,34 @@ bot.on('callback_query', async (q) => {
     const chatId = q.message.chat.id;
     const session = getSession(userId);
 
-    // ================= BACK =================
+    // BACK
     if (q.data === 'back') {
       session.stepIndex = Math.max(0, session.stepIndex - 1);
       await updateUI(chatId, session);
       return bot.answerCallbackQuery(q.id);
     }
 
-    // ================= RESTART =================
+    // RESTART
     if (q.data === 'restart') {
       reset(userId);
       await updateUI(chatId, session);
       return bot.answerCallbackQuery(q.id);
     }
 
-    // ================= APPLY =================
-    if (q.data === 'start_apply') {
-
-      if (!ADMIN_IDS.has(userId)) {
-        const last = lastSubmission.get(userId);
-        const now = Date.now();
-
-        if (last && now - last < COOLDOWN_MS) {
-          const mins = Math.ceil((COOLDOWN_MS - (now - last)) / 60000);
-
-          return bot.answerCallbackQuery(q.id, {
-            text: `Подождите ${mins} мин`,
-            show_alert: true
-          });
-        }
-      }
-
-      session.stepIndex = 0;
-      session.data = {};
-
-      await bot.editMessageText('Введите возраст:', {
-        chat_id: chatId,
-        message_id: q.message.message_id
-      }).catch(() => {});
-
-      return bot.answerCallbackQuery(q.id);
-    }
-
-    // ================= SUBMIT =================
+    // SUBMIT
     if (q.data === 'submit') {
 
       const d = session.data;
 
+      // validation
+      if (!d.age || !d.gender || !d.nickname || !d.friend || !d.about) {
+        return bot.answerCallbackQuery(q.id, {
+          text: 'Заполните все поля',
+          show_alert: true
+        });
+      }
+
+      // cooldown only for non-admins
       if (!ADMIN_IDS.has(userId)) {
         const last = lastSubmission.get(userId);
         const now = Date.now();
@@ -195,32 +175,51 @@ bot.on('callback_query', async (q) => {
         lastSubmission.set(userId, now);
       }
 
-      await bot.sendMessage(ADMIN_CHAT_ID,
-`📥 Новая заявка
+      const userTag = q.from.username
+        ? `@${q.from.username}`
+        : 'no_username';
 
-ID: ${userId}
-Возраст: ${d.age}
-Пол: ${d.gender}
-Ник: ${d.nickname}
-Пригласил: ${d.friend}
-О себе: ${d.about}`,
-      {
-        message_thread_id: ADMIN_THREAD_ID,
-        reply_markup: {
-          inline_keyboard: [[
-            { text: '✅ Принять', callback_data: `accept_${userId}` },
-            { text: '❌ Отклонить', callback_data: `decline_${userId}` }
-          ]]
+      await bot.sendMessage(
+        ADMIN_CHAT_ID,
+`🟦━━━━━━━━━━━━━━🟦
+        📥 NEW APPLICATION
+🟦━━━━━━━━━━━━━━🟦
+
+👤 User: ${userTag}
+🆔 ID: \`${userId}\`
+
+━━━━━━━━━━━━━━
+📊 INFO
+━━━━━━━━━━━━━━
+
+🎂 Age: ${d.age}
+⚧ Gender: ${d.gender}
+🎮 Nickname: ${d.nickname}
+👥 Invited by: ${d.friend}
+
+📝 About:
+${d.about}
+
+🟦━━━━━━━━━━━━━━🟦`,
+        {
+          parse_mode: 'Markdown',
+          message_thread_id: ADMIN_THREAD_ID,
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '✅ Accept', callback_data: `accept_${userId}` },
+              { text: '❌ Decline', callback_data: `decline_${userId}` }
+            ]]
+          }
         }
-      });
+      );
 
       reset(userId);
-      await updateUI(chatId, session);
 
+      await bot.sendMessage(chatId, '✅ Заявка отправлена');
       return bot.answerCallbackQuery(q.id);
     }
 
-    // ================= ADMIN =================
+    // ADMIN ACTIONS
     if (q.data.startsWith('accept_') || q.data.startsWith('decline_')) {
 
       if (!ADMIN_IDS.has(userId)) {
@@ -242,9 +241,9 @@ ID: ${userId}
       processed.add(targetId);
 
       if (q.data.startsWith('accept_')) {
-        await bot.sendMessage(targetId, '✅ Заявка принята');
+        await bot.sendMessage(targetId, '✅ Ваша заявка принята');
       } else {
-        await bot.sendMessage(targetId, '❌ Заявка отклонена');
+        await bot.sendMessage(targetId, '❌ Ваша заявка отклонена');
       }
 
       try {
@@ -267,7 +266,7 @@ ID: ${userId}
   }
 });
 
-// ================= MESSAGE FSM (FIXED 3rd STEP BUG) =================
+// ================= MESSAGE FSM =================
 bot.on('message', async (msg) => {
   try {
     if (!msg.text || msg.text.startsWith('/')) return;
@@ -279,7 +278,6 @@ bot.on('message', async (msg) => {
     const step = STEPS[session.stepIndex];
     if (!step) return;
 
-    // AGE
     if (step === 'age') {
       const age = Number(msg.text);
       if (!age || age < 10 || age > 100) return;
@@ -288,7 +286,6 @@ bot.on('message', async (msg) => {
       return updateUI(chatId, session);
     }
 
-    // GENDER
     if (step === 'gender') {
       const g = msg.text.toLowerCase();
       if (!['мужской', 'женский'].includes(g)) return;
@@ -297,7 +294,6 @@ bot.on('message', async (msg) => {
       return updateUI(chatId, session);
     }
 
-    // 🔥 FIXED STEP (nickname bug was here)
     if (step === 'nickname') {
       session.data.nickname = msg.text.trim();
       session.stepIndex++;
@@ -322,4 +318,4 @@ bot.on('message', async (msg) => {
   }
 });
 
-console.log('🚀 BOT RUNNING STABLE VERSION');
+console.log('🚀 BOT READY - DISCORD STYLE FORM ACTIVE');
