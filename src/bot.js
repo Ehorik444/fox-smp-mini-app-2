@@ -1,4 +1,5 @@
 const TelegramBot = require('node-telegram-bot-api');
+const { Rcon } = require('rcon-client');
 require('dotenv').config();
 
 // ================= INIT =================
@@ -12,8 +13,13 @@ bot.deleteWebHook();
 const ADMIN_CHAT_ID = -1003255144076;
 const ADMIN_THREAD_ID = 3567;
 
-const ADMIN_IDS = new Set([5372937661]);
-const COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+// админы (кто может нажимать кнопки)
+const ADMIN_IDS = new Set([
+  5372937661,
+  1111111111 // <-- сюда добавь остальных админов
+]);
+
+const processedRequests = new Set();
 
 // ================= FSM =================
 const STATES = {
@@ -28,6 +34,7 @@ const STATES = {
 
 const sessions = new Map();
 const lastSubmission = new Map();
+const COOLDOWN_MS = 60 * 60 * 1000;
 
 // ================= SESSION =================
 function getSession(userId) {
@@ -39,6 +46,24 @@ function getSession(userId) {
 
 function resetSession(userId) {
   sessions.set(userId, { state: STATES.IDLE, data: {} });
+}
+
+// ================= RCON =================
+async function addToWhitelist(nick) {
+  try {
+    const rcon = await Rcon.connect({
+      host: process.env.RCON_HOST,
+      port: Number(process.env.RCON_PORT),
+      password: process.env.RCON_PASSWORD
+    });
+
+    await rcon.send(`whitelist add ${nick}`);
+    await rcon.end();
+
+    console.log(`✅ Whitelist added: ${nick}`);
+  } catch (e) {
+    console.error('RCON error:', e);
+  }
 }
 
 // ================= UI =================
@@ -74,11 +99,11 @@ bot.on('callback_query', async (q) => {
       const lastTime = lastSubmission.get(userId);
       const now = Date.now();
 
-      if (!ADMIN_IDS.has(userId) && lastTime && (now - lastTime < COOLDOWN_MS)) {
-        const minutesLeft = Math.ceil((COOLDOWN_MS - (now - lastTime)) / 60000);
+      if (lastTime && now - lastTime < COOLDOWN_MS) {
+        const mins = Math.ceil((COOLDOWN_MS - (now - lastTime)) / 60000);
 
         return bot.answerCallbackQuery(q.id, {
-          text: `Подождите ${minutesLeft} мин`,
+          text: `Подождите ${mins} мин`,
           show_alert: true
         });
       }
@@ -98,9 +123,7 @@ bot.on('callback_query', async (q) => {
     if (q.data === 'confirm') {
       const data = session.data;
 
-      if (!ADMIN_IDS.has(userId)) {
-        lastSubmission.set(userId, Date.now());
-      }
+      lastSubmission.set(userId, Date.now());
 
       const text = `
 📥 Новая заявка
@@ -152,18 +175,64 @@ bot.on('callback_query', async (q) => {
     }
 
     // ================= ADMIN ACTIONS =================
-    if (q.data.startsWith('accept_')) {
-      const uid = q.data.split('_')[1];
+    if (q.data.startsWith('accept_') || q.data.startsWith('decline_')) {
 
-      await bot.sendMessage(uid, 'Ваша заявка принята ✅');
-      return bot.answerCallbackQuery(q.id, { text: 'Принято' });
-    }
+      const requesterId = q.from.id;
 
-    if (q.data.startsWith('decline_')) {
-      const uid = q.data.split('_')[1];
+      // ❌ только админы
+      if (!ADMIN_IDS.has(requesterId)) {
+        return bot.answerCallbackQuery(q.id, {
+          text: 'Нет доступа',
+          show_alert: true
+        });
+      }
 
-      await bot.sendMessage(uid, 'Ваша заявка отклонена ❌');
-      return bot.answerCallbackQuery(q.id, { text: 'Отклонено' });
+      const targetId = q.data.split('_')[1];
+
+      // ❌ защита от повторов
+      if (processedRequests.has(targetId)) {
+        return bot.answerCallbackQuery(q.id, {
+          text: 'Уже обработано',
+          show_alert: true
+        });
+      }
+
+      processedRequests.add(targetId);
+
+      const targetSession = getSession(targetId);
+      const nick = targetSession?.data?.nickname;
+
+      // ================= ACCEPT =================
+      if (q.data.startsWith('accept_')) {
+
+        if (nick) {
+          await addToWhitelist(nick);
+        }
+
+        await bot.sendMessage(targetId, 'Ваша заявка принята ✅');
+        await bot.answerCallbackQuery(q.id, { text: 'Принято' });
+      }
+
+      // ================= DECLINE =================
+      if (q.data.startsWith('decline_')) {
+        await bot.sendMessage(targetId, 'Ваша заявка отклонена ❌');
+        await bot.answerCallbackQuery(q.id, { text: 'Отклонено' });
+      }
+
+      // убрать кнопки из форума
+      try {
+        await bot.editMessageReplyMarkup(
+          { inline_keyboard: [] },
+          {
+            chat_id: ADMIN_CHAT_ID,
+            message_id: q.message.message_id
+          }
+        );
+      } catch (e) {
+        console.error('Failed to clear buttons:', e);
+      }
+
+      return;
     }
 
     return bot.answerCallbackQuery(q.id);
@@ -191,41 +260,33 @@ bot.on('message', async (msg) => {
 
     case STATES.AGE: {
       const age = parseInt(text);
-
       if (isNaN(age) || age < 10 || age > 100) {
-        return bot.sendMessage(chatId, 'Введите возраст 10–100');
+        return bot.sendMessage(chatId, 'Возраст 10–100');
       }
-
       session.data.age = age;
       session.state = STATES.GENDER;
-
       return bot.sendMessage(chatId, 'Пол: мужской / женский');
     }
 
     case STATES.GENDER: {
       const gender = text.toLowerCase();
-
       if (!['мужской', 'женский'].includes(gender)) {
         return bot.sendMessage(chatId, 'Введите: мужской или женский');
       }
-
       session.data.gender = gender;
       session.state = STATES.NICKNAME;
-
       return bot.sendMessage(chatId, 'Введите ник');
     }
 
     case STATES.NICKNAME:
       session.data.nickname = text;
       session.state = STATES.FRIEND;
-
       return bot.sendMessage(chatId, 'Кто пригласил?');
 
     case STATES.FRIEND:
       session.data.friend = text;
       session.state = STATES.ABOUT;
-
-      return bot.sendMessage(chatId, 'О себе (минимум 24 символа)');
+      return bot.sendMessage(chatId, 'О себе (мин 24 символа)');
 
     case STATES.ABOUT:
       if (text.length < 24) {
