@@ -3,7 +3,7 @@ require('dotenv').config();
 
 // ================= CHECK TOKEN =================
 if (!process.env.TELEGRAM_BOT_TOKEN) {
-  console.error('❌ Missing TELEGRAM_BOT_TOKEN in .env');
+  console.error('❌ Missing TELEGRAM_BOT_TOKEN');
   process.exit(1);
 }
 
@@ -143,7 +143,17 @@ async function updateUI(chatId, s) {
   );
 }
 
-// ================= CALLBACKS =================
+// ================= START =================
+bot.onText(/\/start/, async (msg) => {
+  const id = String(msg.from.id);
+
+  reset(id);
+
+  const s = getSession(id);
+  await updateUI(msg.chat.id, s);
+});
+
+// ================= CALLBACK =================
 bot.on('callback_query', async (q) => {
   if (!q?.message?.chat) return;
 
@@ -152,6 +162,8 @@ bot.on('callback_query', async (q) => {
   const s = getSession(id);
 
   try {
+
+    // RESET
     if (q.data === 'restart') {
       reset(id);
       const fresh = getSession(id);
@@ -160,12 +172,14 @@ bot.on('callback_query', async (q) => {
       return safe(() => bot.answerCallbackQuery(q.id));
     }
 
+    // BACK
     if (q.data === 'back') {
       s.step = Math.max(0, s.step - 1);
       await updateUI(chatId, s);
       return safe(() => bot.answerCallbackQuery(q.id));
     }
 
+    // SUBMIT
     if (q.data === 'submit') {
       const d = s.data;
 
@@ -275,7 +289,7 @@ bot.on('message', async (msg) => {
   await updateUI(msg.chat.id, s);
 });
 
-// ================= START =================
+// ================= START LOG =================
 bot.getMe()
   .then(() => console.log('🚀 BOT RUNNING'))
   .catch(err => {
