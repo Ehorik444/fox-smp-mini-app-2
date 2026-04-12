@@ -28,7 +28,7 @@ const FORUM_CHAT_ID = -1003255144076;
 const FORUM_TOPIC_ID = 3567;
 const LOG_TOPIC_ID = 28258;
 
-const ADMINS = [5372937661, 2121418969];
+const ADMINS = [5372937661, 2121418969, 5553677468];
 
 // ================= FSM STATES =================
 const STATES = {
