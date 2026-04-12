@@ -1,4 +1,4 @@
-console.log("=== PRO BOT (CLEAN FSM + FIXED ROUTER) ===");
+console.log("=== PRO BOT (FULL FIXED SECURITY + FSM) ===");
 
 require('dotenv').config();
 const fs = require('fs');
@@ -28,7 +28,7 @@ const FORUM_CHAT_ID = -1003255144076;
 const FORUM_TOPIC_ID = 3567;
 const LOG_TOPIC_ID = 28258;
 
-const ADMINS = [5372937661, 2121418969, 5553677468];
+const ADMINS = [5372937661, 2121418969];
 
 // ================= FSM STATES =================
 const STATES = {
@@ -39,7 +39,7 @@ const STATES = {
   DONE: "DONE"
 };
 
-// ================= ADMIN STATE =================
+// ================= ADMIN REJECT STATE =================
 let rejectTarget = null;
 
 // ================= HELPERS =================
@@ -112,18 +112,17 @@ bot.onText(/\/start/, async (msg) => {
   bot.sendMessage(chatId, "📝 Заявка начата!\nВведите ваш возраст:");
 });
 
-// ================= SINGLE ROUTER (FIXED ARCHITECTURE) =================
+// ================= SINGLE MESSAGE ROUTER =================
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
-  // ❌ ignore empty + commands
   if (!text || text.startsWith('/')) return;
 
   const user = getUser(chatId);
 
-  // ================= ADMIN FLOW FIRST =================
-  if (ADMINS.includes(msg.from.id) && rejectTarget) {
+  // ================= ADMIN REJECT FLOW =================
+  if (rejectTarget && ADMINS.includes(msg.from.id)) {
     const target = rejectTarget;
     rejectTarget = null;
 
@@ -156,45 +155,26 @@ bot.on('message', async (msg) => {
   try {
     const state = user.state;
 
-    // ===== AGE =====
     if (state === STATES.AGE) {
-      updateUser(chatId, {
-        age: text,
-        state: STATES.MC_NICK
-      });
-
+      updateUser(chatId, { age: text, state: STATES.MC_NICK });
       return bot.sendMessage(chatId, "🎮 Ник Minecraft:");
     }
 
-    // ===== MC NICK =====
     if (state === STATES.MC_NICK) {
-      updateUser(chatId, {
-        mc_nick: text,
-        state: STATES.INVITER
-      });
-
+      updateUser(chatId, { mc_nick: text, state: STATES.INVITER });
       return bot.sendMessage(chatId, "👥 Ник пригласившего:");
     }
 
-    // ===== INVITER =====
     if (state === STATES.INVITER) {
-      updateUser(chatId, {
-        inviter: text,
-        state: STATES.ABOUT
-      });
-
+      updateUser(chatId, { inviter: text, state: STATES.ABOUT });
       return bot.sendMessage(chatId, "🧾 О себе (24+ символа):");
     }
 
-    // ===== ABOUT =====
     if (state === STATES.ABOUT) {
       if (text.length < 24)
         return bot.sendMessage(chatId, "❌ Минимум 24 символа");
 
-      updateUser(chatId, {
-        about: text,
-        state: STATES.DONE
-      });
+      updateUser(chatId, { about: text, state: STATES.DONE });
 
       const app = getUser(chatId);
 
@@ -221,8 +201,7 @@ bot.on('message', async (msg) => {
 
       updateUser(chatId, {
         message_id: sent.message_id,
-        status: 'pending',
-        app_count: (user.app_count || 0) + 1
+        status: 'pending'
       });
 
       return bot.sendMessage(chatId, "✅ Заявка отправлена!");
@@ -233,26 +212,30 @@ bot.on('message', async (msg) => {
   }
 });
 
-// ================= CALLBACKS =================
+// ================= CALLBACKS (FIXED SECURITY) =================
 bot.on('callback_query', async (q) => {
   const adminId = q.from.id;
-  const [action, chatIdStr] = q.data.split(':');
+  const data = q.data;
+
+  const [action, chatIdStr] = data.split(':');
   const chatId = Number(chatIdStr);
 
-  const app = getUser(chatId);
+  const isAdmin = ADMINS.includes(adminId);
 
-  if (!ADMINS.includes(adminId)) {
+  // 🔒 HARD SECURITY FIX (FIRST CHECK)
+  if (!isAdmin) {
     return bot.answerCallbackQuery(q.id, {
-      text: "Нет прав",
+      text: "⛔ Нет прав",
       show_alert: true
     });
   }
+
+  const app = getUser(chatId);
 
   if (!app) {
     return bot.answerCallbackQuery(q.id, { text: "Нет заявки" });
   }
 
-  // ===== ACCEPT =====
   if (action === "accept") {
     await addToWhitelist(app.mc_nick);
 
@@ -270,7 +253,6 @@ bot.on('callback_query', async (q) => {
     return bot.answerCallbackQuery(q.id, { text: "OK" });
   }
 
-  // ===== REJECT INIT =====
   if (action === "reject") {
     rejectTarget = chatId;
 
@@ -279,4 +261,4 @@ bot.on('callback_query', async (q) => {
   }
 });
 
-console.log("Bot started (CLEAN PRO FSM READY)");
+console.log("Bot started (FULL FIXED SAFE VERSION)");
