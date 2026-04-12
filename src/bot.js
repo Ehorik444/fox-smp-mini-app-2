@@ -8,21 +8,15 @@ const bot = new TelegramBot(process.env.BOT_TOKEN, {
 
 const GROUP_LINK = process.env.GROUP_LINK;
 
-// /start
-bot.onText(/\/start/, async (msg) => {
+bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
 
-  const text =
+  bot.sendMessage(
+    chatId,
     "⚠️ Бот временно не работает.\n\n" +
-    "Пишите в поддержку:\n" +
-    GROUP_LINK;
-
-  await bot.sendMessage(chatId, text);
+    "Пишите сюда:\n" +
+    GROUP_LINK
+  );
 });
 
-// (пример обработки сообщений — если нужно)
-bot.on('message', async (msg) => {
-  // сюда можно добавить логику
-});
-
-console.log('Bot started...');
+console.log("Bot started");
