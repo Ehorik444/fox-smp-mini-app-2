@@ -39,7 +39,7 @@ const submittedApplicants = new Set();
 const mainMenuKeyboard = {
     inline_keyboard: [
         [
-            { text: '📝 Подать заявку', callback_ 'apply_start' }
+            { text: '📝 Подать заявку', callback_data: 'apply_start' }
         ],
         [
             { text: '📜 Правила сервера', url: 'https://docs.google.com/document/d/14Bonb5QdGe6vyxn6lqCneB8foplgdlK8yBwuvVV0kQY/edit?usp=sharing' }
@@ -323,8 +323,8 @@ bot.on('message', (msg) => {
             const keyboard = {
                 inline_keyboard: [
                     [
-                        { text: '✅ Да', callback_ 'confirm_submit' },
-                        { text: '❌ Изменить', callback_ 'restart_apply' }
+                        { text: '✅ Да', callback_data: 'confirm_submit' },
+                        { text: '❌ Изменить', callback_data: 'restart_apply' }
                     ]
                 ]
             };
