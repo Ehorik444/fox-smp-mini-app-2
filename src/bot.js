@@ -10,6 +10,15 @@ const ADMIN_THREAD_ID = 3567;
 const ADMIN_IDS = new Set(['5372937661']);
 const COOLDOWN_MS = 60 * 60 * 1000;
 
+// ================= SAFETY (FIX CRASHES) =================
+process.on('unhandledRejection', (err) => {
+  console.error('UNHANDLED REJECTION:', err);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION:', err);
+});
+
 // ================= STORAGE =================
 const sessions = new Map();
 const lastSubmission = new Map();
@@ -104,7 +113,7 @@ async function updateUI(chatId, session) {
     session.messageId = msg.message_id;
     return msg;
 
-  } catch {
+  } catch (e) {
     const msg = await bot.sendMessage(chatId, ui.text, {
       reply_markup: { inline_keyboard: ui.keyboard }
     });
@@ -131,21 +140,19 @@ bot.on('callback_query', async (q) => {
     const chatId = q.message.chat.id;
     const session = getSession(userId);
 
-    // BACK
     if (q.data === 'back') {
       session.stepIndex = Math.max(0, session.stepIndex - 1);
       await updateUI(chatId, session);
       return bot.answerCallbackQuery(q.id);
     }
 
-    // RESTART
     if (q.data === 'restart') {
       reset(userId);
       await updateUI(chatId, session);
       return bot.answerCallbackQuery(q.id);
     }
 
-    // SUBMIT
+    // ================= SUBMIT =================
     if (q.data === 'submit') {
 
       const d = session.data;
@@ -158,7 +165,7 @@ bot.on('callback_query', async (q) => {
         });
       }
 
-      // cooldown only for non-admins
+      // cooldown (only non-admin)
       if (!ADMIN_IDS.has(userId)) {
         const last = lastSubmission.get(userId);
         const now = Date.now();
@@ -179,14 +186,15 @@ bot.on('callback_query', async (q) => {
         ? `@${q.from.username}`
         : 'no_username';
 
+      // ================= SAFE DISCORD CARD (NO Markdown!) =================
       await bot.sendMessage(
         ADMIN_CHAT_ID,
 `🟦━━━━━━━━━━━━━━🟦
-        📥 NEW APPLICATION
+📥 NEW APPLICATION
 🟦━━━━━━━━━━━━━━🟦
 
 👤 User: ${userTag}
-🆔 ID: \`${userId}\`
+🆔 ID: ${userId}
 
 ━━━━━━━━━━━━━━
 📊 INFO
@@ -202,7 +210,6 @@ ${d.about}
 
 🟦━━━━━━━━━━━━━━🟦`,
         {
-          parse_mode: 'Markdown',
           message_thread_id: ADMIN_THREAD_ID,
           reply_markup: {
             inline_keyboard: [[
@@ -219,7 +226,7 @@ ${d.about}
       return bot.answerCallbackQuery(q.id);
     }
 
-    // ADMIN ACTIONS
+    // ================= ADMIN ACTIONS =================
     if (q.data.startsWith('accept_') || q.data.startsWith('decline_')) {
 
       if (!ADMIN_IDS.has(userId)) {
@@ -318,4 +325,4 @@ bot.on('message', async (msg) => {
   }
 });
 
-console.log('🚀 BOT READY - DISCORD STYLE FORM ACTIVE');
+console.log('🚀 STABLE BOT RUNNING (NO CRASH VERSION)');
