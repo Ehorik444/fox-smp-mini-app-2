@@ -11,7 +11,9 @@ const FORUM_TOPIC_ID = 3567;
 
 const users = {};
 
-// ===== RCON функция =====
+console.log("NEW BOT VERSION LOADED");
+
+// ===== RCON =====
 async function addToWhitelist(nick) {
   const rcon = await Rcon.connect({
     host: process.env.RCON_HOST,
@@ -23,7 +25,7 @@ async function addToWhitelist(nick) {
   await rcon.end();
 }
 
-// ===== /start =====
+// ===== START =====
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
 
@@ -40,29 +42,35 @@ bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
 
   if (!msg.text) return;
+
+  // игнор команд кроме /start
   if (msg.text.startsWith('/') && msg.text !== '/start') return;
 
   const user = users[chatId];
   if (!user) return;
 
+  // 1 возраст
   if (user.step === 1) {
     user.age = msg.text;
     user.step = 2;
     return bot.sendMessage(chatId, "🎮 Введите ваш ник в Minecraft:");
   }
 
+  // 2 ник
   if (user.step === 2) {
     user.mcNick = msg.text;
     user.step = 3;
     return bot.sendMessage(chatId, "👥 Ник пригласившего друга:");
   }
 
+  // 3 пригласивший
   if (user.step === 3) {
     user.inviter = msg.text;
     user.step = 4;
     return bot.sendMessage(chatId, "🧾 О себе (минимум 24 символа):");
   }
 
+  // 4 описание
   if (user.step === 4) {
     if (msg.text.length < 24) {
       return bot.sendMessage(chatId, "❌ Минимум 24 символа:");
@@ -82,9 +90,19 @@ bot.on('message', async (msg) => {
 🧾 О себе:
 ${user.about}`;
 
-    const sent = await bot.sendMessage(
+    // ===== 1 сообщение (заявка) =====
+    await bot.sendMessage(
       FORUM_CHAT_ID,
       application,
+      {
+        message_thread_id: FORUM_TOPIC_ID
+      }
+    );
+
+    // ===== 2 сообщение (кнопки) =====
+    await bot.sendMessage(
+      FORUM_CHAT_ID,
+      "⚙️ Управление заявкой:",
       {
         message_thread_id: FORUM_TOPIC_ID,
         reply_markup: {
@@ -98,49 +116,41 @@ ${user.about}`;
       }
     );
 
-    user.messageId = sent.message_id;
-
     await bot.sendMessage(chatId, "✅ Заявка отправлена на рассмотрение!");
   }
 });
 
-// ===== обработка кнопок =====
+// ===== CALLBACKS (ВСЁ В ОДНОМ) =====
 bot.on('callback_query', async (query) => {
-  const [action, chatIdStr] = query.data.split(':');
-  const chatId = Number(chatIdStr);
+  const data = query.data;
+  const [action, userIdStr] = data.split(':');
+  const userId = Number(userIdStr);
 
-  const user = users[chatId];
+  const user = users[userId];
 
-  if (!user) {
-    return bot.answerCallbackQuery(query.id, {
-      text: "Заявка уже обработана"
-    });
-  }
-
-  // ===== ПРИНЯТЬ =====
+  // ===== ACCEPT =====
   if (action === 'accept') {
     try {
       await addToWhitelist(user.mcNick);
 
-      await bot.sendMessage(chatId, "🎉 Ваша заявка принята! Вы добавлены в whitelist.");
+      await bot.sendMessage(userId, "🎉 Ваша заявка принята! Вы добавлены в whitelist.");
 
       await bot.editMessageText("✅ ЗАЯВКА ПРИНЯТА", {
-        chat_id: FORUM_CHAT_ID,
+        chat_id: query.message.chat.id,
         message_id: query.message.message_id
       });
 
-      delete users[chatId];
-
-      bot.answerCallbackQuery(query.id);
+      delete users[userId];
     } catch (err) {
       console.error(err);
       bot.answerCallbackQuery(query.id, { text: "Ошибка RCON" });
     }
   }
 
-  // ===== ОТКЛОНИТЬ =====
+  // ===== REJECT =====
   if (action === 'reject') {
-    await bot.sendMessage(chatId,
+    await bot.sendMessage(
+      userId,
       "❌ Ваша заявка отклонена",
       {
         reply_markup: {
@@ -152,29 +162,24 @@ bot.on('callback_query', async (query) => {
     );
 
     await bot.editMessageText("❌ ЗАЯВКА ОТКЛОНЕНА", {
-      chat_id: FORUM_CHAT_ID,
+      chat_id: query.message.chat.id,
       message_id: query.message.message_id
     });
 
-    delete users[chatId];
-
-    bot.answerCallbackQuery(query.id);
+    delete users[userId];
   }
-});
 
-// ===== повторная заявка =====
-bot.on('callback_query', (query) => {
-  if (query.data === 'restart') {
-    const chatId = query.message.chat.id;
-
-    users[chatId] = {
+  // ===== RESTART =====
+  if (data === 'restart') {
+    users[userId] = {
       step: 1,
       username: query.from.username || "нет username"
     };
 
-    bot.sendMessage(chatId, "📝 Начинаем новую заявку!\nВведите возраст:");
-    bot.answerCallbackQuery(query.id);
+    bot.sendMessage(userId, "📝 Начинаем новую заявку!\nВведите возраст:");
   }
+
+  bot.answerCallbackQuery(query.id);
 });
 
 console.log("Bot started");
