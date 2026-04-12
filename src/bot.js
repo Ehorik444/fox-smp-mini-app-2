@@ -11,6 +11,10 @@ const ADMIN_THREAD_ID = 3567;
 const ADMIN_IDS = new Set(['5372937661']);
 const COOLDOWN_MS = 60 * 60 * 1000;
 
+// ================= SAFETY =================
+process.on('unhandledRejection', (e) => console.error('UNHANDLED:', e));
+process.on('uncaughtException', (e) => console.error('CRASH:', e));
+
 // ================= RCON =================
 const RCON_CONFIG = {
   host: process.env.RCON_HOST,
@@ -18,16 +22,12 @@ const RCON_CONFIG = {
   password: process.env.RCON_PASSWORD
 };
 
-// ================= SAFETY =================
-process.on('unhandledRejection', (err) => console.error('UNHANDLED:', err));
-process.on('uncaughtException', (err) => console.error('CRASH:', err));
-
 // ================= STORAGE =================
 const sessions = new Map();
 const lastSubmission = new Map();
 const processed = new Set();
 
-// ================= FSM =================
+// ================= STEPS =================
 const STEPS = ['age', 'gender', 'nickname', 'friend', 'about', 'confirm'];
 
 // ================= SESSION =================
@@ -43,39 +43,6 @@ function reset(id) {
   sessions.set(String(id), { stepIndex: 0, data: {}, messageId: null });
 }
 
-// ================= RCON WHITELIST =================
-async function addToWhitelist(nick) {
-  let rcon;
-
-  try {
-    rcon = await Rcon.connect(RCON_CONFIG);
-
-    const list = await rcon.send('whitelist list');
-
-    if (list.includes(nick)) {
-      console.log(`⚠️ Already in whitelist: ${nick}`);
-      await rcon.end();
-      return { ok: false, reason: 'exists' };
-    }
-
-    const res = await rcon.send(`whitelist add ${nick}`);
-
-    console.log(`✅ Whitelisted: ${nick}`);
-    console.log(`📡 RCON: ${res}`);
-
-    await rcon.end();
-
-    return { ok: true };
-
-  } catch (e) {
-    console.error(`❌ RCON ERROR (${nick}):`, e);
-
-    try { if (rcon) await rcon.end(); } catch {}
-
-    return { ok: false, reason: 'error' };
-  }
-}
-
 // ================= UI =================
 function render(session) {
   const step = STEPS[session.stepIndex];
@@ -84,7 +51,7 @@ function render(session) {
   if (step === 'confirm') {
     return {
       text:
-`📥 ПРОВЕРКА ЗАЯВКИ
+`Проверь данные:
 
 Возраст: ${d.age}
 Пол: ${d.gender}
@@ -94,29 +61,32 @@ function render(session) {
 
 Отправить заявку?`,
       keyboard: [
-        [{ text: '✅ Отправить', callback_data: 'submit' }],
-        [{ text: '🔄 Заново', callback_data: 'restart' }]
+        [{ text: 'Отправить', callback_data: 'submit' }],
+        [{ text: 'Начать заново', callback_data: 'restart' }]
       ]
     };
   }
 
   const texts = {
-    age: '📋 Введите возраст',
-    gender: '📋 Пол (мужской / женский)',
-    nickname: '📋 Ник',
-    friend: '📋 Кто пригласил?',
-    about: '📋 О себе (24+ символа)'
+    age: 'Введите возраст',
+    gender: 'Пол (мужской / женский)',
+    nickname: 'Введите ник',
+    friend: 'Кто пригласил?',
+    about: 'О себе (мин. 24 символа)'
   };
 
   const keyboard = [];
   if (session.stepIndex > 0) {
-    keyboard.push([{ text: '⬅ Назад', callback_data: 'back' }]);
+    keyboard.push([{ text: 'Назад', callback_data: 'back' }]);
   }
 
-  return { text: texts[step], keyboard };
+  return {
+    text: texts[step],
+    keyboard
+  };
 }
 
-// ================= UPDATE UI =================
+// ================= UI UPDATE =================
 async function updateUI(chatId, session) {
   const ui = render(session);
 
@@ -145,6 +115,36 @@ bot.onText(/\/start/, async (msg) => {
   reset(msg.from.id);
   await updateUI(msg.chat.id, session);
 });
+
+// ================= RCON =================
+async function addToWhitelist(nick) {
+  let rcon;
+
+  try {
+    rcon = await Rcon.connect(RCON_CONFIG);
+
+    const list = await rcon.send('whitelist list');
+
+    if (list.includes(nick)) {
+      console.log(`⚠️ Уже в вайтлисте: ${nick}`);
+      await rcon.end();
+      return { ok: false, reason: 'exists' };
+    }
+
+    const res = await rcon.send(`whitelist add ${nick}`);
+
+    console.log(`✅ Добавлен в вайтлист: ${nick}`);
+    console.log(`📡 RCON: ${res}`);
+
+    await rcon.end();
+    return { ok: true };
+
+  } catch (e) {
+    console.error('❌ RCON ERROR:', e);
+    try { if (rcon) await rcon.end(); } catch {}
+    return { ok: false, reason: 'error' };
+  }
+}
 
 // ================= CALLBACK =================
 bot.on('callback_query', async (q) => {
@@ -177,7 +177,6 @@ bot.on('callback_query', async (q) => {
         });
       }
 
-      // cooldown (except admin)
       if (!ADMIN_IDS.has(id)) {
         const last = lastSubmission.get(id);
         const now = Date.now();
@@ -192,38 +191,31 @@ bot.on('callback_query', async (q) => {
         lastSubmission.set(id, now);
       }
 
-      const userTag = q.from.username ? `@${q.from.username}` : 'no_username';
+      const userTag = q.from.username ? `@${q.from.username}` : 'без username';
 
-      // ================= RCON =================
-      const rconResult = await addToWhitelist(d.nickname);
+      await addToWhitelist(d.nickname);
 
-      console.log('RCON RESULT:', rconResult);
-
-      // ================= SEND TO ADMIN =================
+      // ================= MINIMAL ADMIN CARD =================
       await bot.sendMessage(
         ADMIN_CHAT_ID,
-`🟦━━━━━━━━━━━━━━🟦
-📥 NEW APPLICATION
-🟦━━━━━━━━━━━━━━🟦
+`📥 Новая заявка
 
-👤 User: ${userTag}
-🆔 ID: ${id}
+Пользователь: ${userTag}
+ID: ${id}
 
-🎂 Age: ${d.age}
-⚧ Gender: ${d.gender}
-🎮 Nickname: ${d.nickname}
-👥 Invited by: ${d.friend}
+Возраст: ${d.age}
+Пол: ${d.gender}
+Ник: ${d.nickname}
+Пригласил: ${d.friend}
 
-📝 About:
-${d.about}
-
-🟦━━━━━━━━━━━━━━🟦`,
+О себе:
+${d.about}`,
         {
           message_thread_id: ADMIN_THREAD_ID,
           reply_markup: {
             inline_keyboard: [[
-              { text: '✅ Accept', callback_data: `accept_${id}` },
-              { text: '❌ Decline', callback_data: `decline_${id}` }
+              { text: 'Принять', callback_data: `accept_${id}` },
+              { text: 'Отклонить', callback_data: `decline_${id}` }
             ]]
           }
         }
@@ -231,11 +223,11 @@ ${d.about}
 
       reset(id);
 
-      await bot.sendMessage(chatId, '✅ Заявка отправлена');
+      await bot.sendMessage(chatId, 'Заявка отправлена');
       return bot.answerCallbackQuery(q.id);
     }
 
-    // ================= ADMIN =================
+    // ================= ADMIN ACTIONS =================
     if (q.data.startsWith('accept_') || q.data.startsWith('decline_')) {
 
       if (!ADMIN_IDS.has(id)) {
@@ -257,9 +249,9 @@ ${d.about}
       processed.add(target);
 
       if (q.data.startsWith('accept_')) {
-        await bot.sendMessage(target, '✅ Заявка принята');
+        await bot.sendMessage(target, 'Заявка принята');
       } else {
-        await bot.sendMessage(target, '❌ Заявка отклонена');
+        await bot.sendMessage(target, 'Заявка отклонена');
       }
 
       try {
@@ -329,4 +321,4 @@ bot.on('message', async (msg) => {
   }
 });
 
-console.log('🚀 BOT ONLINE (FULL FIXED VERSION)');
+console.log('БОТ ЗАПУЩЕН (МИНИМАЛЬНЫЙ АДМИН ФОРМАТ)');
