@@ -2,12 +2,11 @@
   "name": "bot",
   "version": "1.0.0",
   "main": "src/bot.js",
-  "scripts": {
-    "start": "node src/bot.js"
-  },
+  "type": "commonjs",
   "dependencies": {
-    "dotenv": "^16.0.0",
     "node-telegram-bot-api": "^0.66.0",
-    "rcon-client": "^4.2.0"
+    "pg": "^8.11.3",
+    "rcon-client": "^4.2.4",
+    "dotenv": "^16.4.5"
   }
 }
