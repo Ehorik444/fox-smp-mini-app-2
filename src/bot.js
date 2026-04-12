@@ -1,4 +1,3 @@
-// ================= IMPORTS =================
 const TelegramBot = require('node-telegram-bot-api');
 require('dotenv').config();
 
@@ -7,6 +6,12 @@ const token = process.env.TELEGRAM_BOT_TOKEN;
 if (!token) throw new Error('TELEGRAM_BOT_TOKEN missing');
 
 const bot = new TelegramBot(token, { polling: true });
+
+bot.deleteWebHook();
+
+// ================= CONFIG =================
+const ADMIN_CHAT_ID = -1003255144076;
+const ADMIN_THREAD_ID = 3567;
 
 // ================= FSM =================
 const STATES = {
@@ -20,7 +25,9 @@ const STATES = {
 };
 
 const sessions = new Map();
+const submitted = new Set();
 
+// ================= SESSION =================
 function getSession(userId) {
   if (!sessions.has(userId)) {
     sessions.set(userId, { state: STATES.IDLE, data: {} });
@@ -31,9 +38,6 @@ function getSession(userId) {
 function resetSession(userId) {
   sessions.set(userId, { state: STATES.IDLE, data: {} });
 }
-
-// ================= DATA =================
-const submitted = new Set();
 
 // ================= UI =================
 const mainMenu = {
@@ -64,6 +68,7 @@ bot.on('callback_query', async (q) => {
 
     const chatId = q.message.chat.id;
 
+    // ================= START APPLY =================
     if (q.data === 'start_apply') {
       if (submitted.has(userId)) {
         return bot.answerCallbackQuery(q.id, {
@@ -83,8 +88,32 @@ bot.on('callback_query', async (q) => {
       return bot.answerCallbackQuery(q.id);
     }
 
+    // ================= CONFIRM =================
     if (q.data === 'confirm') {
+      const data = session.data;
+
       submitted.add(userId);
+
+      const text = `
+📥 Новая заявка
+
+👤 ID: ${userId}
+Возраст: ${data.age}
+Пол: ${data.gender}
+Ник: ${data.nickname}
+Пригласил: ${data.friend}
+О себе: ${data.about}
+`;
+
+      await bot.sendMessage(ADMIN_CHAT_ID, text, {
+        message_thread_id: ADMIN_THREAD_ID,
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '✅ Принять', callback_data: `accept_${userId}` },
+            { text: '❌ Отклонить', callback_data: `decline_${userId}` }
+          ]]
+        }
+      });
 
       await bot.editMessageReplyMarkup(
         { inline_keyboard: [] },
@@ -94,12 +123,14 @@ bot.on('callback_query', async (q) => {
         }
       );
 
-      await bot.sendMessage(chatId, 'Заявка отправлена ✅');
+      await bot.sendMessage(chatId, 'Заявка отправлена админам ✅');
 
       resetSession(userId);
+
       return bot.answerCallbackQuery(q.id);
     }
 
+    // ================= RESTART =================
     if (q.data === 'restart') {
       session.state = STATES.AGE;
       session.data = {};
@@ -110,6 +141,21 @@ bot.on('callback_query', async (q) => {
       });
 
       return bot.answerCallbackQuery(q.id);
+    }
+
+    // ================= ADMIN ACTIONS =================
+    if (q.data.startsWith('accept_')) {
+      const uid = q.data.split('_')[1];
+
+      await bot.sendMessage(uid, 'Ваша заявка принята ✅');
+      return bot.answerCallbackQuery(q.id, { text: 'Принято' });
+    }
+
+    if (q.data.startsWith('decline_')) {
+      const uid = q.data.split('_')[1];
+
+      await bot.sendMessage(uid, 'Ваша заявка отклонена ❌');
+      return bot.answerCallbackQuery(q.id, { text: 'Отклонено' });
     }
 
     return bot.answerCallbackQuery(q.id);
@@ -131,14 +177,6 @@ bot.on('message', async (msg) => {
 
   if (typeof text !== 'string') return;
 
-  // перезапуск через /start
-  if (text === '/start') {
-    resetSession(userId);
-    return bot.sendMessage(chatId, 'Начинаем заново', {
-      reply_markup: mainMenu
-    });
-  }
-
   const session = getSession(userId);
 
   switch (session.state) {
@@ -147,7 +185,7 @@ bot.on('message', async (msg) => {
       const age = parseInt(text);
 
       if (isNaN(age) || age < 10 || age > 100) {
-        return bot.sendMessage(chatId, 'Введите корректный возраст (10–100)');
+        return bot.sendMessage(chatId, 'Введите возраст 10–100');
       }
 
       session.data.age = age;
@@ -179,11 +217,11 @@ bot.on('message', async (msg) => {
       session.data.friend = text;
       session.state = STATES.ABOUT;
 
-      return bot.sendMessage(chatId, 'О себе (мин 24 символа)');
+      return bot.sendMessage(chatId, 'О себе (минимум 24 символа)');
 
     case STATES.ABOUT:
       if (text.length < 24) {
-        return bot.sendMessage(chatId, 'Слишком коротко (минимум 24 символа)');
+        return bot.sendMessage(chatId, 'Слишком коротко');
       }
 
       session.data.about = text;
@@ -192,6 +230,7 @@ bot.on('message', async (msg) => {
       return bot.sendMessage(
         chatId,
         `Проверь:
+
 Возраст: ${session.data.age}
 Пол: ${session.data.gender}
 Ник: ${session.data.nickname}
@@ -211,5 +250,8 @@ bot.on('message', async (msg) => {
       return;
   }
 });
+
+process.on('unhandledRejection', console.error);
+process.on('uncaughtException', console.error);
 
 console.log('Bot started');
