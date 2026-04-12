@@ -7,6 +7,7 @@ const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
 // ================= CONFIG =================
 const ADMIN_CHAT_ID = -1003255144076;
 const ADMIN_THREAD_ID = 3567;
+
 const ADMIN_IDS = new Set(['5372937661']);
 const COOLDOWN_MS = 60 * 60 * 1000;
 
@@ -29,14 +30,24 @@ function getSession(id) {
   id = String(id);
 
   if (!sessions.has(id)) {
-    sessions.set(id, { step: 0, data: {}, messageId: null, chatId: null });
+    sessions.set(id, {
+      step: 0,
+      data: {},
+      messageId: null,
+      chatId: null
+    });
   }
 
   return sessions.get(id);
 }
 
 function reset(id) {
-  sessions.set(String(id), { step: 0, data: {}, messageId: null, chatId: null });
+  sessions.set(String(id), {
+    step: 0,
+    data: {},
+    messageId: null,
+    chatId: null
+  });
 }
 
 // ================= UI =================
@@ -95,12 +106,11 @@ ${step + 1}. ${cur.label}
   };
 }
 
-// ================= SAFE UI UPDATE =================
+// ================= SAFE UI =================
 async function updateUI(chatId, s) {
   const ui = render(s);
 
   try {
-    // ❗ ЕСЛИ НЕТ messageId → создаём новое сообщение
     if (!s.messageId) {
       const msg = await bot.sendMessage(chatId, ui.text, {
         reply_markup: { inline_keyboard: ui.keyboard }
@@ -111,9 +121,6 @@ async function updateUI(chatId, s) {
       return;
     }
 
-    // ❗ если messageId вдруг пустой
-    if (!s.messageId) return;
-
     await bot.editMessageText(ui.text, {
       chat_id: chatId,
       message_id: s.messageId,
@@ -123,7 +130,7 @@ async function updateUI(chatId, s) {
   } catch (e) {
     console.error('updateUI error:', e.message);
 
-    // 🔥 FIX: если сообщение потеряно — пересоздаём
+    // если сообщение потеряно — пересоздаём
     if (e.response?.body?.error_code === 400) {
       const msg = await bot.sendMessage(chatId, ui.text, {
         reply_markup: { inline_keyboard: ui.keyboard }
@@ -135,44 +142,7 @@ async function updateUI(chatId, s) {
   }
 }
 
-// ================= ANIMATION =================
-async function animate(chatId, s, fn) {
-  const frames = ['⏳', '⏳.', '⏳..', '⏳...'];
-
-  try {
-    if (!s.messageId) {
-      await updateUI(chatId, s);
-      return;
-    }
-
-    for (const f of frames) {
-      try {
-        await bot.editMessageText(f, {
-          chat_id: chatId,
-          message_id: s.messageId,
-          reply_markup: { inline_keyboard: [] }
-        });
-      } catch {}
-
-      await new Promise(r => setTimeout(r, 80));
-    }
-
-    await fn?.();
-    await updateUI(chatId, s);
-
-  } catch (e) {
-    console.error('animate error:', e.message);
-  }
-}
-
-// ================= START =================
-bot.onText(/\/start/, async (msg) => {
-  reset(msg.from.id);
-  const s = getSession(msg.from.id);
-  await updateUI(msg.chat.id, s);
-});
-
-// ================= CALLBACKS =================
+// ================= RESET FIX (ВАЖНО) =================
 bot.on('callback_query', async (q) => {
   if (!q.message) return;
 
@@ -182,16 +152,24 @@ bot.on('callback_query', async (q) => {
 
   try {
 
-    if (q.data === 'back') {
-      s.step = Math.max(0, s.step - 1);
-      await animate(chatId, s);
+    if (q.data === 'restart') {
+      try {
+        if (s.messageId) {
+          await bot.deleteMessage(chatId, s.messageId);
+        }
+      } catch {}
+
+      reset(id);
+
+      const fresh = getSession(id);
+      await updateUI(chatId, fresh);
+
       return bot.answerCallbackQuery(q.id);
     }
 
-    if (q.data === 'restart') {
-      reset(id);
-      const fresh = getSession(id);
-      await animate(chatId, fresh);
+    if (q.data === 'back') {
+      s.step = Math.max(0, s.step - 1);
+      await updateUI(chatId, s);
       return bot.answerCallbackQuery(q.id);
     }
 
@@ -226,34 +204,12 @@ ${d.about}`,
       return bot.answerCallbackQuery(q.id);
     }
 
-    if (q.data.startsWith('accept_') || q.data.startsWith('decline_')) {
-      const target = q.data.split('_')[1];
-
-      if (processed.has(target)) {
-        return bot.answerCallbackQuery(q.id, {
-          text: 'Уже обработано',
-          show_alert: true
-        });
-      }
-
-      processed.set(target, Date.now());
-
-      await bot.sendMessage(
-        target,
-        q.data.startsWith('accept_')
-          ? 'Заявка принята'
-          : 'Заявка отклонена'
-      );
-
-      return bot.answerCallbackQuery(q.id);
-    }
-
   } catch (e) {
     console.error(e);
   }
 });
 
-// ================= FSM =================
+// ================= FSM FIX (КРИТИЧЕСКИЙ) =================
 bot.on('message', async (msg) => {
   if (!msg.text || msg.text.startsWith('/')) return;
 
@@ -264,28 +220,47 @@ bot.on('message', async (msg) => {
   if (!step) return;
 
   const key = step.key;
+  const text = msg.text.trim();
 
-  if (key === 'age' && /^\d+$/.test(msg.text)) {
-    s.data.age = msg.text;
+  let valid = false;
+
+  if (key === 'age') {
+    if (/^\d+$/.test(text)) {
+      s.data.age = text;
+      valid = true;
+    }
   }
 
   if (key === 'gender') {
-    const v = msg.text.toLowerCase().trim();
-    if (!['мужской', 'женский'].includes(v)) return;
-    s.data.gender = v;
+    const v = text.toLowerCase();
+    if (['мужской', 'женский'].includes(v)) {
+      s.data.gender = v;
+      valid = true;
+    }
   }
 
-  if (key === 'nickname') s.data.nickname = msg.text;
-  if (key === 'friend') s.data.friend = msg.text;
+  if (key === 'nickname') {
+    s.data.nickname = text;
+    valid = true;
+  }
+
+  if (key === 'friend') {
+    s.data.friend = text;
+    valid = true;
+  }
 
   if (key === 'about') {
-    if (msg.text.length < 24) return;
-    s.data.about = msg.text;
+    if (text.length >= 24) {
+      s.data.about = text;
+      valid = true;
+    }
   }
+
+  if (!valid) return;
 
   s.step++;
 
-  return animate(msg.chat.id, s);
+  return updateUI(msg.chat.id, s);
 });
 
-console.log('🚀 BOT RUNNING (FIXED)');
+console.log('🚀 BOT FIXED AND STABLE');
