@@ -1,32 +1,28 @@
-import os
-from dotenv import load_dotenv
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+require('dotenv').config();
 
-load_dotenv()
+const TelegramBot = require('node-telegram-bot-api');
 
-TOKEN = os.getenv("BOT_TOKEN")
-GROUP_LINK = os.getenv("GROUP_LINK")
+const bot = new TelegramBot(process.env.BOT_TOKEN, {
+  polling: true
+});
 
+const GROUP_LINK = process.env.GROUP_LINK;
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = (
-        "⚠️ Бот временно не работает.\n\n"
-        "Пожалуйста, пишите в нашу группу поддержки:\n"
-        f"{GROUP_LINK}"
-    )
+// /start
+bot.onText(/\/start/, async (msg) => {
+  const chatId = msg.chat.id;
 
-    await update.message.reply_text(message)
+  const text =
+    "⚠️ Бот временно не работает.\n\n" +
+    "Пишите в поддержку:\n" +
+    GROUP_LINK;
 
+  await bot.sendMessage(chatId, text);
+});
 
-def main():
-    app = Application.builder().token(TOKEN).build()
+// (пример обработки сообщений — если нужно)
+bot.on('message', async (msg) => {
+  // сюда можно добавить логику
+});
 
-    app.add_handler(CommandHandler("start", start))
-
-    print("Bot is running...")
-    app.run_polling()
-
-
-if __name__ == "__main__":
-    main()
+console.log('Bot started...');
