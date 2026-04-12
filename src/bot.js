@@ -32,7 +32,7 @@ const ADMIN_IDS = new Set([...ADMIN_CHAT_IDS]);
 
 const userStates = {};
 
-// Кнопки главного меню (без статистики, оценки и отзывов)
+// Кнопки главного меню (только подача заявки и правила)
 const mainMenuKeyboard = {
     inline_keyboard: [
         [
@@ -188,7 +188,7 @@ bot.on('callback_query', (query) => {
                         console.log(`[WHITELIST] Игрок ${targetNickname} добавлен в вайтлист пользователем ${adminUsername} (ID: ${userId})`);
 
                         // Уведомляем пользователя
-                        bot.sendMessage(targetUserId, `🎉 Ваша заявка одобрена!\n✅ Ник \`${targetNickname}\` добавлен в вайтлист.\nЗаходите на сервер: \`fox-smp.com:20073\``, { parse_mode: 'Markdown' });
+                        bot.sendMessage(targetUserId, `🎉 Ваша заявка одобрена!\n✅ Ник \`${targetNickname}\` добавлен в вайтлист.\nЗаходите на сервер: \`fox-smp.com:20073\`\nПрисоединяйтесь к нашей группе: https://t.me/foxsmp_official`, { parse_mode: 'Markdown' });
                         bot.answerCallbackQuery(query.id, { text: `✅ Игрок ${targetNickname} добавлен в вайтлист.`, show_alert: true });
                     })
                     .catch(err => {
