@@ -334,4 +334,232 @@ bot.on('message', (msg) => {
     }
 });
 
+console.log('🤖 Бот запущен. Ожидание команды /start...');            }
+
+            // 🔑 Добавляем пользователя в список подавших заявку
+            submittedApplicants.add(chatId);
+
+            const appText = `
+Новая заявка на сервер Fox SMP:
+- От кого: ${stateSubmit.username}
+- Возраст: ${stateSubmit.age}
+- Пол: ${stateSubmit.gender}
+- Ник: ${stateSubmit.nickname}
+- Приглашен от: ${stateSubmit.friend_nickname || 'Не указан'}
+- О себе: ${stateSubmit.about}
+            `.trim();
+            bot.sendMessage(FORUM_CHAT_ID, appText, { message_thread_id: THREAD_ID })
+                .then(sentMsg => {
+                    const msgId = sentMsg.message_id;
+                    const approvalButtons = {
+                        inline_keyboard: [
+                            [
+                                { text: '✅ Принять', callback_data: `approve_${chatId}_${stateSubmit.nickname}` },
+                                { text: '❌ Отклонить', callback_data: `reject_${chatId}` }
+                            ]
+                        ]
+                    };
+
+                    bot.editMessageReplyMarkup(approvalButtons, {
+                        chat_id: FORUM_CHAT_ID,
+                        message_id: msgId
+                    }).catch(() => {});
+
+                    ADMIN_CHAT_IDS.forEach(adminId => {
+                        bot.sendMessage(adminId, `🔔 Новая заявка от ${stateSubmit.username} (ID: ${chatId})`, {
+                            reply_to_message_id: msgId,
+                            message_thread_id: THREAD_ID
+                        }).catch(() => {});
+                    });
+
+                    bot.editMessageText('✅ Заявка отправлена. Админы скоро её рассмотрят.', {
+                        chat_id: chatId,                        message_id: query.message.message_id
+                    });
+                })
+                .catch(err => {
+                    console.error('Ошибка отправки заявки:', err);
+                    // 🔑 Удаляем из списка, если ошибка
+                    submittedApplicants.delete(chatId);
+                    bot.answerCallbackQuery(query.id, { text: '❌ Ошибка. Попробуйте позже.', show_alert: true });
+                });
+
+            delete userStates[chatId];
+            break;
+
+        // Повторить заявку (только если пользователь ещё не подавал)
+        case 'restart_apply':
+            if (submittedApplicants.has(chatId)) {
+                bot.answerCallbackQuery(query.id, { text: '❌ Вы уже подавали заявку ранее. Повторная подача запрещена.', show_alert: true });
+                return;
+            }
+            userStates[chatId] = { step: 'age' };
+            bot.editMessageText('Введите возраст:', {
+                chat_id: chatId,
+                message_id: query.message.message_id
+            });
+            bot.answerCallbackQuery(query.id);
+            break;
+
+        // Одобрение/отклонение
+        default:
+            if (data.startsWith('approve_')) {
+                const parts = data.split('_');
+                const action = parts[0]; // "approve"
+                const targetIdStr = parts[1];
+                const targetNickname = parts.slice(2).join('_'); // на случай, если ник содержит "_"
+
+                const targetUserId = parseInt(targetIdStr);
+
+                if (!ADMIN_IDS.has(userId)) {
+                    bot.answerCallbackQuery(query.id, { text: '❌ У вас нет прав.', show_alert: true });
+                    return;
+                }
+
+                if (!targetNickname) {
+                    bot.answerCallbackQuery(query.id, { text: '❌ Ошибка: ник игрока не найден.', show_alert: true });
+                    return;
+                }
+
+                // 🔑 Отправляем RCON-команду
+                const rcon = new Rcon(RCON_CONFIG);
+                rcon.connect()
+                    .then(() => {
+                        console.log(`[RCON] Отправляем whitelist add ${targetNickname}`);
+                        return rcon.send(`whitelist add ${targetNickname}`);
+                    })
+                    .then(response => {
+                        console.log(`[RCON] Ответ: ${response}`);
+                        // ✅ Выводим в консоль сообщение о добавлении в вайтлист
+                        const adminUsername = from.username ? `@${from.username}` : from.first_name;
+                        console.log(`[WHITELIST] Игрок ${targetNickname} добавлен в вайтлист пользователем ${adminUsername} (ID: ${userId})`);
+
+                        // Уведомляем пользователя
+                        bot.sendMessage(targetUserId, `🎉 Ваша заявка одобрена!\n✅ Ник \`${targetNickname}\` добавлен в вайтлист.\nЗаходите на сервер: \`fox-smp.com:20073\`\nПрисоединяйтесь к нашей группе: https://t.me/foxsmp_official`, { parse_mode: 'Markdown' });
+                        bot.answerCallbackQuery(query.id, { text: `✅ Игрок ${targetNickname} добавлен в вайтлист.`, show_alert: true });
+                    })
+                    .catch(err => {
+                        console.error('[RCON ERROR]:', err.message);
+                        // Уведомляем админа об ошибке
+                        bot.sendMessage(userId, `⚠️ Ошибка RCON: ${err.message}. Проверьте настройки.`);
+                        bot.answerCallbackQuery(query.id, { text: `❌ Ошибка RCON: ${err.message}`, show_alert: true });
+                    })
+                    .finally(() => {
+                        rcon.end(); // Закрываем соединение
+                    });
+
+            } else if (data.startsWith('reject_')) {
+                const [_, targetIdStr] = data.split('_');
+                const targetUserId = parseInt(targetIdStr);
+                if (!ADMIN_IDS.has(userId)) {
+                    bot.answerCallbackQuery(query.id, { text: '❌ У вас нет прав.', show_alert: true });
+                    return;
+                }
+
+                const keyboard = {
+                    inline_keyboard: [
+                        [{ text: '🔄 Подать снова', callback_data: 'retry_apply' }]
+                    ]
+                };
+                bot.sendMessage(targetUserId, '❌ Ваша заявка отклонена. Если хотите — подайте снова.', {
+                    reply_markup: keyboard
+                });
+                bot.answerCallbackQuery(query.id, { text: '❌ Отклонено', show_alert: true });
+            }
+
+            // Убираем кнопки
+            bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
+                chat_id: query.message.chat.id,
+                message_id: query.message.message_id
+            }).catch(() => {});
+            break;
+        case 'retry_apply':
+            if (submittedApplicants.has(userId)) {
+                bot.sendMessage(userId, '❌ Вы уже подавали заявку ранее. Повторная подача запрещена.');
+                bot.answerCallbackQuery(query.id, { text: '❌ Повторная подача запрещена.', show_alert: true });
+                return;
+            }
+            userStates[userId] = { step: 'age' };
+            bot.sendMessage(userId, 'Введите возраст:');
+            bot.answerCallbackQuery(query.id);
+            break;
+    }
+});
+
+// Обработка формы заявки
+bot.on('message', (msg) => {
+    const chatId = msg.chat.id;
+    const text = msg.text;
+    const from = msg.from;
+
+    if (!userStates[chatId]) return;
+    const state = userStates[chatId];
+
+    switch (state.step) {
+        case 'age':
+            if (/^\d+$/.test(text) && parseInt(text) > 0) {
+                state.age = text;
+                state.step = 'gender';
+                bot.sendMessage(chatId, 'Выберите пол: мужской / женский / другое');
+            } else {
+                bot.sendMessage(chatId, 'Введите возраст (число > 0):');
+            }
+            break;
+
+        case 'gender':
+            if (['мужской', 'женский', 'другое'].includes(text.toLowerCase())) {
+                state.gender = text;
+                state.step = 'nickname';
+                bot.sendMessage(chatId, 'Введите ваш игровой ник в Minecraft:');
+            } else {
+                bot.sendMessage(chatId, 'Выберите: мужской / женский / другое');
+            }
+            break;
+
+        case 'nickname':
+            state.nickname = text;
+            state.step = 'friend_nickname';
+            bot.sendMessage(chatId, 'Введите ник друга, который вас пригласил (или "-" если никто):');
+            break;
+        // 🔑 Новый шаг: ник друга
+        case 'friend_nickname':
+            state.friend_nickname = text.trim() === '-' ? 'Не указан' : text;
+            state.step = 'about';
+            bot.sendMessage(chatId, 'Расскажите о себе (минимум 24 символа):');
+            break;
+
+        case 'about':
+            if (text.length < 24) {
+                bot.sendMessage(chatId, '❌ Слишком короткое описание. Напишите минимум 24 символа.');
+                return;
+            }
+
+            state.about = text;
+            state.username = from.username ? `@${from.username}` : from.first_name;
+
+            const preview = `
+Вот ваша заявка:
+- От кого: ${state.username}
+- Возраст: ${state.age}
+- Пол: ${state.gender}
+- Ник: ${state.nickname}
+- Приглашен от: ${state.friend_nickname}
+- О себе: ${state.about}
+
+Всё верно? Нажмите ✅ Да или ❌ Изменить.
+            `.trim();
+
+            const keyboard = {
+                inline_keyboard: [
+                    [
+                        { text: '✅ Да', callback_data: 'confirm_submit' },
+                        { text: '❌ Изменить', callback_data: 'restart_apply' }
+                    ]
+                ]
+            };
+
+            bot.sendMessage(chatId, preview, { reply_markup: keyboard });
+            break;
+    }
+});
+
 console.log('🤖 Бот запущен. Ожидание команды /start...');
