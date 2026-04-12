@@ -3,6 +3,10 @@ require('dotenv').config();
 
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
 
+// ================= CONFIG =================
+const ADMIN_CHAT_ID = -1003255144076;
+const ADMIN_THREAD_ID = 3567;
+
 // ================= STATE =================
 const sessions = new Map();
 
@@ -14,6 +18,16 @@ const STEPS = [
   { key: 'friend', label: 'Пригласил' },
   { key: 'about', label: 'О себе' }
 ];
+
+// ================= SAFE WRAPPER =================
+async function safe(fn) {
+  try {
+    return await fn();
+  } catch (e) {
+    console.error('TG ERROR:', e?.response?.body || e.message);
+    return null;
+  }
+}
 
 // ================= SESSION =================
 function getSession(id) {
@@ -50,20 +64,10 @@ function reset(id) {
   s.chatId = null;
 }
 
-// ================= SAFE WRAPPER =================
-async function safe(fn) {
-  try {
-    return await fn();
-  } catch (e) {
-    console.error('TG ERROR:', e?.response?.body || e.message);
-    return null;
-  }
-}
-
 // ================= UI =================
 function render(s) {
-  const step = s.step;
   const d = s.data;
+  const step = s.step;
 
   const total = STEPS.length;
   const percent = Math.round((step / total) * 100);
@@ -108,7 +112,7 @@ ${step + 1}. ${cur.label}
   };
 }
 
-// ================= UPDATE UI =================
+// ================= UI UPDATE =================
 async function updateUI(chatId, s) {
   const ui = render(s);
 
@@ -146,7 +150,6 @@ bot.on('callback_query', async (q) => {
 
   try {
 
-    // RESET
     if (q.data === 'restart') {
       if (s.messageId) {
         await safe(() => bot.deleteMessage(chatId, s.messageId));
@@ -160,7 +163,6 @@ bot.on('callback_query', async (q) => {
       return safe(() => bot.answerCallbackQuery(q.id));
     }
 
-    // BACK
     if (q.data === 'back') {
       s.step = Math.max(0, s.step - 1);
       await updateUI(chatId, s);
@@ -168,7 +170,6 @@ bot.on('callback_query', async (q) => {
       return safe(() => bot.answerCallbackQuery(q.id));
     }
 
-    // SUBMIT
     if (q.data === 'submit') {
       const d = s.data;
 
@@ -176,15 +177,17 @@ bot.on('callback_query', async (q) => {
       if (!d.age || !d.gender || !d.nickname || !d.friend || !d.about) {
         return safe(() =>
           bot.answerCallbackQuery(q.id, {
-            text: 'Не все поля заполнены',
+            text: 'Заполните все поля',
             show_alert: true
           })
         );
       }
 
+      // ================= SEND TO FORUM (FIXED) =================
       await safe(() =>
-        bot.sendMessage(chatId,
-`📥 Заявка
+        bot.sendMessage(
+          ADMIN_CHAT_ID,
+          `📥 Заявка
 
 Возраст: ${d.age}
 Пол: ${d.gender}
@@ -192,10 +195,16 @@ bot.on('callback_query', async (q) => {
 Пригласил: ${d.friend}
 
 О себе:
-${d.about}`)
+${d.about}`,
+          {
+            message_thread_id: ADMIN_THREAD_ID
+          }
+        )
       );
 
       reset(id);
+
+      await safe(() => bot.sendMessage(chatId, 'Заявка отправлена'));
 
       return safe(() => bot.answerCallbackQuery(q.id));
     }
@@ -212,7 +221,6 @@ bot.on('message', async (msg) => {
   const id = String(msg.from.id);
   const s = getSession(id);
 
-  // защита step
   if (!Number.isInteger(s.step) || s.step < 0 || s.step >= STEPS.length) {
     s.step = 0;
   }
@@ -225,42 +233,29 @@ bot.on('message', async (msg) => {
 
   let ok = false;
 
-  switch (key) {
+  if (key === 'age' && /^\d+$/.test(text)) {
+    s.data.age = text;
+    ok = true;
+  }
 
-    case 'age':
-      if (/^\d+$/.test(text)) {
-        s.data.age = text;
-        ok = true;
-      }
-      break;
+  if (key === 'gender' && ['мужской', 'женский'].includes(text.toLowerCase())) {
+    s.data.gender = text.toLowerCase();
+    ok = true;
+  }
 
-    case 'gender':
-      if (['мужской', 'женский'].includes(text.toLowerCase())) {
-        s.data.gender = text.toLowerCase();
-        ok = true;
-      }
-      break;
+  if (key === 'nickname' && text) {
+    s.data.nickname = text;
+    ok = true;
+  }
 
-    case 'nickname':
-      if (text.length > 0) {
-        s.data.nickname = text;
-        ok = true;
-      }
-      break;
+  if (key === 'friend' && text) {
+    s.data.friend = text;
+    ok = true;
+  }
 
-    case 'friend':
-      if (text.length > 0) {
-        s.data.friend = text;
-        ok = true;
-      }
-      break;
-
-    case 'about':
-      if (text.length >= 5) {
-        s.data.about = text;
-        ok = true;
-      }
-      break;
+  if (key === 'about' && text.length >= 5) {
+    s.data.about = text;
+    ok = true;
   }
 
   if (!ok) return;
@@ -270,4 +265,4 @@ bot.on('message', async (msg) => {
   await updateUI(msg.chat.id, s);
 });
 
-console.log('🚀 FULLY FIXED BOT RUNNING');
+console.log('🚀 BOT FULLY FIXED + FORUM WORKING');
