@@ -112,9 +112,11 @@ bot.on('callback_query', async (q) => {
       return bot.answerCallbackQuery(q.id);
     }
 
+    return bot.answerCallbackQuery(q.id);
+
   } catch (e) {
     console.error(e);
-    bot.answerCallbackQuery(q.id, {
+    return bot.answerCallbackQuery(q.id, {
       text: 'Ошибка',
       show_alert: true
     });
@@ -189,7 +191,12 @@ bot.on('message', async (msg) => {
 
       return bot.sendMessage(
         chatId,
-        `Проверь:\nВозраст: ${session.data.age}\nПол: ${session.data.gender}\nНик: ${session.data.nickname}\nПригласил: ${session.data.friend}\nО себе: ${session.data.about}`,
+        `Проверь:
+Возраст: ${session.data.age}
+Пол: ${session.data.gender}
+Ник: ${session.data.nickname}
+Пригласил: ${session.data.friend}
+О себе: ${session.data.about}`,
         {
           reply_markup: {
             inline_keyboard: [[
