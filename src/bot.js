@@ -57,20 +57,23 @@ async function sendLog(text) {
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
 
+  const username =
+    msg.from.username
+      ? `@${msg.from.username}`
+      : (msg.from.first_name || `id:${msg.from.id}`);
+
   const user = await pool.query(
     "SELECT * FROM applications WHERE chat_id=$1",
     [chatId]
   );
 
-  const data = user.rows[0];
-
-  if (!data) {
+  if (!user.rows[0]) {
     await pool.query(`
       INSERT INTO applications(chat_id, username, status, app_count, last_message)
       VALUES ($1,$2,'draft',0,NOW())
       ON CONFLICT (chat_id)
       DO UPDATE SET username=EXCLUDED.username
-    `, [chatId, msg.from.username || "нет username"]);
+    `, [chatId, username]);
   }
 
   await pool.query(`
@@ -81,6 +84,26 @@ bot.onText(/\/start/, async (msg) => {
   bot.sendMessage(chatId, "📝 Заявка начата!\nВведите ваш возраст:");
 });
 
+// ===== STATS (КТО СКОЛЬКО ЗАЯВОК ПОДАЛ) =====
+bot.onText(/\/stats/, async (msg) => {
+  if (!ADMINS.includes(msg.from.id)) return;
+
+  const res = await pool.query(`
+    SELECT username, app_count
+    FROM applications
+    ORDER BY app_count DESC
+    LIMIT 10
+  `);
+
+  const text =
+    "📊 ТОП ЗАЯВОК:\n\n" +
+    res.rows.map((u, i) =>
+      `${i + 1}. ${u.username || "unknown"} — ${u.app_count}`
+    ).join("\n");
+
+  bot.sendMessage(msg.chat.id, text);
+});
+
 // ===== MESSAGE FLOW =====
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
@@ -88,7 +111,6 @@ bot.on('message', async (msg) => {
 
   if (!text) return;
 
-  // 🚫 ANTI-SPAM
   if (isSpam(chatId)) return;
 
   const res = await pool.query(
@@ -99,7 +121,6 @@ bot.on('message', async (msg) => {
   const user = res.rows[0];
   if (!user || user.status !== 'draft') return;
 
-  // ⏱ COOLDOWN 1 HOUR
   if (user.last_message) {
     const diff = Date.now() - new Date(user.last_message).getTime();
     if (diff < 3600000) {
@@ -148,7 +169,7 @@ bot.on('message', async (msg) => {
     const message =
 `📥 ЗАЯВКА
 
-👤 @${app.username}
+👤 ${app.username || "нет username"}
 🎂 ${app.age}
 🎮 ${app.mc_nick}
 👥 ${app.inviter}
@@ -210,7 +231,7 @@ bot.on('callback_query', async (q) => {
       message_id: app.message_id
     });
 
-    await sendLog(`✅ ПРИНЯТА @${app.username}`);
+    await sendLog(`✅ ПРИНЯТА @${app.username || "unknown"}`);
 
     return bot.answerCallbackQuery(q.id, { text: "OK" });
   }
@@ -256,7 +277,7 @@ bot.on('message', async (msg) => {
     message_id: app.message_id
   });
 
-  await sendLog(`❌ ОТКЛОНЕНА @${app.username} | ${text}`);
+  await sendLog(`❌ ОТКЛОНЕНА @${app.username || "unknown"} | ${text}`);
 });
 
 console.log("Bot started");
