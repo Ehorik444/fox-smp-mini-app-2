@@ -1,3 +1,4 @@
+console.log("=== NEW VERSION ===");
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const { Rcon } = require('rcon-client');
