@@ -1,33 +1,18 @@
 const TelegramBot = require('node-telegram-bot-api');
+const Redis = require('ioredis');
 require('dotenv').config();
 
-if (!process.env.TELEGRAM_BOT_TOKEN) {
-  console.error('❌ Missing TELEGRAM_BOT_TOKEN');
-  process.exit(1);
-}
+// ========= CONFIG =========
+const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
 
-// ================= BOT =================
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
-  polling: true
-});
+const redis = new Redis(process.env.REDIS_URL); // например redis://127.0.0.1:6379
 
-// ================= CONFIG =================
 const ADMIN_CHAT_ID = -1003255144076;
 const ADMIN_THREAD_ID = 3567;
 
-// ================= STATE =================
-const sessions = new Map();
+const SESSION_TTL = 600; // 10 минут
 
-// ================= STEPS =================
-const STEPS = [
-  { key: 'age', label: 'Возраст' },
-  { key: 'gender', label: 'Пол' },
-  { key: 'nickname', label: 'Ник' },
-  { key: 'friend', label: 'Пригласил' },
-  { key: 'about', label: 'О себе' }
-];
-
-// ================= SAFE =================
+// ========= HELPERS =========
 async function safe(fn) {
   try {
     return await fn();
@@ -37,52 +22,44 @@ async function safe(fn) {
   }
 }
 
-// ================= SESSION =================
-function getSession(id) {
-  id = String(id);
-
-  if (!sessions.has(id)) {
-    sessions.set(id, {
-      step: 0,
-      data: {}
-    });
-  }
-
-  return sessions.get(id);
+async function getSession(id) {
+  const data = await redis.get(`session:${id}`);
+  return data ? JSON.parse(data) : { step: 0, data: {} };
 }
 
-function reset(id) {
-  sessions.set(String(id), {
-    step: 0,
+async function setSession(id, session) {
+  await redis.set(
+    `session:${id}`,
+    JSON.stringify(session),
+    'EX',
+    SESSION_TTL
+  );
+}
+
+async function resetSession(id) {
+  await redis.del(`session:${id}`);
+}
+
+// ========= START =========
+bot.onText(/\/start/, async (msg) => {
+  const id = String(msg.from.id);
+
+  await resetSession(id);
+
+  await setSession(id, {
+    step: 1,
     data: {}
   });
-}
 
-// ================= /START (100% FIXED) =================
-bot.onText(/\/start/, async (msg) => {
-  try {
-    const id = String(msg.from.id);
-
-    reset(id);
-    const s = getSession(id);
-
-    await bot.sendMessage(
-      msg.chat.id,
-      '👋 Привет! Начинаем анкету. Напиши возраст:'
-    );
-
-    s.step = 1;
-  } catch (e) {
-    console.error('START ERROR:', e);
-  }
+  bot.sendMessage(msg.chat.id, '👋 Введи возраст:');
 });
 
-// ================= MESSAGE FLOW =================
+// ========= FLOW =========
 bot.on('message', async (msg) => {
   if (!msg.text || msg.text.startsWith('/')) return;
 
   const id = String(msg.from.id);
-  const s = getSession(id);
+  let s = await getSession(id);
 
   const text = msg.text.trim();
 
@@ -90,56 +67,108 @@ bot.on('message', async (msg) => {
     case 1:
       s.data.age = text;
       s.step = 2;
-      return bot.sendMessage(msg.chat.id, 'Пол? (мужской / женский)');
 
-    case 2:
-      s.data.gender = text;
-      s.step = 3;
-      return bot.sendMessage(msg.chat.id, 'Ник?');
+      await setSession(id, s);
+
+      return bot.sendMessage(msg.chat.id, 'Выбери пол:', {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: 'Мужской', callback_data: 'gender_male' },
+              { text: 'Женский', callback_data: 'gender_female' }
+            ]
+          ]
+        }
+      });
 
     case 3:
       s.data.nickname = text;
       s.step = 4;
+
+      await setSession(id, s);
+
       return bot.sendMessage(msg.chat.id, 'Кто пригласил?');
 
     case 4:
       s.data.friend = text;
       s.step = 5;
-      return bot.sendMessage(msg.chat.id, 'Расскажи о себе');
+
+      await setSession(id, s);
+
+      return bot.sendMessage(msg.chat.id, 'О себе:');
 
     case 5:
       s.data.about = text;
       s.step = 6;
 
+      await setSession(id, s);
+
+      const d = s.data;
+
       return bot.sendMessage(
         msg.chat.id,
-        `📥 Заявка готова
+`📥 Проверь анкету:
 
-Возраст: ${s.data.age}
-Пол: ${s.data.gender}
-Ник: ${s.data.nickname}
-Пригласил: ${s.data.friend}
+Возраст: ${d.age}
+Пол: ${d.gender}
+Ник: ${d.nickname}
+Пригласил: ${d.friend}
 
 О себе:
-${s.data.about}`,
+${d.about}`,
         {
           reply_markup: {
-            inline_keyboard: [[
-              { text: '✅ Отправить', callback_data: 'submit' }
-            ]]
+            inline_keyboard: [
+              [{ text: '✅ Отправить', callback_data: 'submit' }]
+            ]
           }
         }
       );
   }
 });
 
-// ================= CALLBACK =================
+// ========= CALLBACK =========
 bot.on('callback_query', async (q) => {
   const id = String(q.from.id);
-  const s = getSession(id);
+  let s = await getSession(id);
 
+  // ❌ если сессия умерла
+  if (!s || !s.step) {
+    return bot.answerCallbackQuery(q.id, {
+      text: '❌ Сессия истекла. Напиши /start',
+      show_alert: true
+    });
+  }
+
+  // ========= GENDER =========
+  if (q.data.startsWith('gender_')) {
+    s.data.gender = q.data === 'gender_male' ? 'мужской' : 'женский';
+    s.step = 3;
+
+    await setSession(id, s);
+
+    await bot.editMessageReplyMarkup(
+      { inline_keyboard: [] },
+      {
+        chat_id: q.message.chat.id,
+        message_id: q.message.message_id
+      }
+    );
+
+    await bot.sendMessage(id, 'Введи ник:');
+
+    return bot.answerCallbackQuery(q.id);
+  }
+
+  // ========= SUBMIT =========
   if (q.data === 'submit') {
-    const d = s.data;
+    const d = {
+      age: s.data.age || 'не указано',
+      gender: s.data.gender || 'не указано',
+      nickname: s.data.nickname || 'не указано',
+      friend: s.data.friend || 'не указано',
+      about: s.data.about || 'не указано'
+    };
 
     await safe(() =>
       bot.sendMessage(
@@ -156,20 +185,34 @@ ${d.about}`,
         {
           message_thread_id: ADMIN_THREAD_ID,
           reply_markup: {
-            inline_keyboard: [[
-              { text: '✅ Принять', callback_data: `accept_${id}` },
-              { text: '❌ Отклонить', callback_data: `decline_${id}` }
-            ]]
+            inline_keyboard: [
+              [
+                { text: '✅ Принять', callback_data: `accept_${id}` },
+                { text: '❌ Отклонить', callback_data: `decline_${id}` }
+              ]
+            ]
           }
         }
       )
     );
 
-    reset(id);
+    await bot.sendMessage(id, '✅ Заявка отправлена!');
+
+    // удаляем кнопку
+    await bot.editMessageReplyMarkup(
+      { inline_keyboard: [] },
+      {
+        chat_id: q.message.chat.id,
+        message_id: q.message.message_id
+      }
+    );
+
+    await resetSession(id);
 
     return bot.answerCallbackQuery(q.id);
   }
 
+  // ========= ADMIN =========
   if (q.data.startsWith('accept_') || q.data.startsWith('decline_')) {
     const target = q.data.split('_')[1];
 
@@ -177,8 +220,8 @@ ${d.about}`,
       bot.sendMessage(
         target,
         q.data.startsWith('accept_')
-          ? 'Заявка принята ✅'
-          : 'Заявка отклонена ❌'
+          ? '✅ Заявка принята'
+          : '❌ Заявка отклонена'
       )
     );
 
@@ -186,9 +229,7 @@ ${d.about}`,
   }
 });
 
-// ================= START LOG =================
+// ========= LOG =========
 bot.getMe()
-  .then(() => console.log('🚀 BOT RUNNING OK'))
-  .catch(err => {
-    console.error('❌ BOT FAILED:', err);
-  });
+  .then(() => console.log('🚀 BOT RUNNING WITH REDIS'))
+  .catch(console.error);
