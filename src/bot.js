@@ -1,3 +1,34 @@
+// ================= CLEAN PRODUCTION MODE =================
+
+// убирает NODE warnings
+process.removeAllListeners('warning');
+
+// глушит TLS / HTTPS debug (если случайно включён)
+process.env.NODE_DEBUG = '';
+process.env.DEBUG = '';
+
+// отключает лишние TLS/SSL от Node (частично убирает шум)
+if (!process.env.NODE_DEBUG) {
+  console.debug = () => {};
+}
+
+// глушим лишние системные логи библиотеки
+console.log = (function (orig) {
+  return function (...args) {
+    const msg = args.join(' ');
+
+    // фильтруем мусор TLS / HTTP / keepalive
+    if (
+      msg.includes('TLS') ||
+      msg.includes('SecureContext') ||
+      msg.includes('socket') ||
+      msg.includes('connect-options') ||
+      msg.includes('ReusedHandle')
+    ) return;
+
+    orig.apply(console, args);
+  };
+})(console.log);
 console.log("=== PRO BOT (FULL FIXED SECURITY + FSM) ===");
 
 require('dotenv').config();
