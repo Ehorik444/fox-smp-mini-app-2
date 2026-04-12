@@ -1,7 +1,6 @@
 const TelegramBot = require('node-telegram-bot-api');
 require('dotenv').config();
 
-// ================= CHECK =================
 if (!process.env.TELEGRAM_BOT_TOKEN) {
   console.error('❌ Missing TELEGRAM_BOT_TOKEN');
   process.exit(1);
@@ -9,10 +8,7 @@ if (!process.env.TELEGRAM_BOT_TOKEN) {
 
 // ================= BOT =================
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
-  polling: {
-    autoStart: true,
-    params: { timeout: 10 }
-  }
+  polling: true
 });
 
 // ================= CONFIG =================
@@ -36,7 +32,7 @@ async function safe(fn) {
   try {
     return await fn();
   } catch (e) {
-    console.error('ERROR:', e?.response?.body || e.message);
+    console.error('TG ERROR:', e?.response?.body || e.message);
     return null;
   }
 }
@@ -48,14 +44,7 @@ function getSession(id) {
   if (!sessions.has(id)) {
     sessions.set(id, {
       step: 0,
-      data: {
-        age: '',
-        gender: '',
-        nickname: '',
-        friend: '',
-        about: ''
-      },
-      messageId: null
+      data: {}
     });
   }
 
@@ -63,173 +52,99 @@ function getSession(id) {
 }
 
 function reset(id) {
-  const s = getSession(id);
-  s.step = 0;
-  s.data = {
-    age: '',
-    gender: '',
-    nickname: '',
-    friend: '',
-    about: ''
-  };
-  s.messageId = null;
+  sessions.set(String(id), {
+    step: 0,
+    data: {}
+  });
 }
 
-// ================= RENDER =================
-function render(s) {
-  const d = s.data;
-
-  if (s.step >= STEPS.length) {
-    return {
-      text: `📥 Заявка
-
-Возраст: ${d.age}
-Пол: ${d.gender}
-Ник: ${d.nickname}
-Пригласил: ${d.friend}
-
-О себе:
-${d.about}`,
-      keyboard: [
-        [{ text: '✅ Отправить', callback_data: 'submit' }],
-        [{ text: '↻ Сброс', callback_data: 'restart' }]
-      ]
-    };
-  }
-
-  const cur = STEPS[s.step];
-
-  return {
-    text: `💳 Шаг ${s.step + 1}: ${cur.label}
-
-Введите значение:`,
-    keyboard: []
-  };
-}
-
-// ================= UPDATE =================
-async function updateUI(chatId, s) {
-  const ui = render(s);
-
-  if (!s.messageId) {
-    const msg = await safe(() =>
-      bot.sendMessage(chatId, ui.text, {
-        reply_markup: { inline_keyboard: ui.keyboard }
-      })
-    );
-
-    if (msg) s.messageId = msg.message_id;
-
-    return;
-  }
-
-  await safe(() =>
-    bot.editMessageText(ui.text, {
-      chat_id: chatId,
-      message_id: s.messageId,
-      reply_markup: { inline_keyboard: ui.keyboard }
-    })
-  );
-}
-
-// ================= /START (CRITICAL FIX) =================
+// ================= /START (100% FIXED) =================
 bot.onText(/\/start/, async (msg) => {
   try {
     const id = String(msg.from.id);
 
     reset(id);
-
     const s = getSession(id);
 
-    const sent = await bot.sendMessage(msg.chat.id, '👋 Начнём анкету');
-    s.messageId = sent.message_id;
+    await bot.sendMessage(
+      msg.chat.id,
+      '👋 Привет! Начинаем анкету. Напиши возраст:'
+    );
 
-    await updateUI(msg.chat.id, s);
-
+    s.step = 1;
   } catch (e) {
     console.error('START ERROR:', e);
   }
 });
 
-// ================= MESSAGE FSM =================
+// ================= MESSAGE FLOW =================
 bot.on('message', async (msg) => {
   if (!msg.text || msg.text.startsWith('/')) return;
 
   const id = String(msg.from.id);
   const s = getSession(id);
 
-  const step = STEPS[s.step];
-  if (!step) return;
-
   const text = msg.text.trim();
-  let ok = false;
 
-  switch (step.key) {
-    case 'age':
-      if (/^\d+$/.test(text)) {
-        s.data.age = text;
-        ok = true;
-      }
-      break;
+  switch (s.step) {
+    case 1:
+      s.data.age = text;
+      s.step = 2;
+      return bot.sendMessage(msg.chat.id, 'Пол? (мужской / женский)');
 
-    case 'gender':
-      if (['мужской', 'женский'].includes(text.toLowerCase())) {
-        s.data.gender = text;
-        ok = true;
-      }
-      break;
+    case 2:
+      s.data.gender = text;
+      s.step = 3;
+      return bot.sendMessage(msg.chat.id, 'Ник?');
 
-    case 'nickname':
+    case 3:
       s.data.nickname = text;
-      ok = true;
-      break;
+      s.step = 4;
+      return bot.sendMessage(msg.chat.id, 'Кто пригласил?');
 
-    case 'friend':
+    case 4:
       s.data.friend = text;
-      ok = true;
-      break;
+      s.step = 5;
+      return bot.sendMessage(msg.chat.id, 'Расскажи о себе');
 
-    case 'about':
-      if (text.length > 2) {
-        s.data.about = text;
-        ok = true;
-      }
-      break;
+    case 5:
+      s.data.about = text;
+      s.step = 6;
+
+      return bot.sendMessage(
+        msg.chat.id,
+        `📥 Заявка готова
+
+Возраст: ${s.data.age}
+Пол: ${s.data.gender}
+Ник: ${s.data.nickname}
+Пригласил: ${s.data.friend}
+
+О себе:
+${s.data.about}`,
+        {
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '✅ Отправить', callback_data: 'submit' }
+            ]]
+          }
+        }
+      );
   }
-
-  if (!ok) return;
-
-  s.step++;
-  await updateUI(msg.chat.id, s);
 });
 
-// ================= CALLBACKS =================
+// ================= CALLBACK =================
 bot.on('callback_query', async (q) => {
   const id = String(q.from.id);
-  const chatId = q.message?.chat?.id;
   const s = getSession(id);
-
-  if (!chatId) return;
-
-  if (q.data === 'restart') {
-    reset(id);
-    return updateUI(chatId, s);
-  }
 
   if (q.data === 'submit') {
     const d = s.data;
 
-    if (!d.age || !d.gender || !d.nickname || !d.friend || !d.about) {
-      return bot.answerCallbackQuery(q.id, {
-        text: 'Заполните все поля',
-        show_alert: true
-      });
-    }
-
     await safe(() =>
       bot.sendMessage(
         ADMIN_CHAT_ID,
-`📥 Заявка
+`📥 Новая заявка
 
 Возраст: ${d.age}
 Пол: ${d.gender}
@@ -273,7 +188,7 @@ ${d.about}`,
 
 // ================= START LOG =================
 bot.getMe()
-  .then(() => console.log('🚀 BOT IS RUNNING'))
+  .then(() => console.log('🚀 BOT RUNNING OK'))
   .catch(err => {
-    console.error('❌ BOT START FAILED:', err);
+    console.error('❌ BOT FAILED:', err);
   });
