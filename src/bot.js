@@ -1,37 +1,53 @@
-console.log("=== PRO BOT (REDIS FSM PRODUCTION VERSION) ===");
+console.log("=== PRO BOT (FINAL IMPROVED STABLE VERSION) ===");
 
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 const TelegramBot = require('node-telegram-bot-api');
 const { Rcon } = require('rcon-client');
-const Redis = require('ioredis');
 
 // ================= GLOBAL SAFETY =================
-process.on('uncaughtException', console.error);
-process.on('unhandledRejection', console.error);
+process.on('uncaughtException', (e) => console.error('UNCAUGHT:', e));
+process.on('unhandledRejection', (e) => console.error('UNHANDLED:', e));
 
-// ================= REDIS =================
-const redis = new Redis(process.env.REDIS_URL);
+// ================= DB =================
+const DB_FILE = path.join(__dirname, 'applications.json');
 
-const STATE_KEY = (id) => `user:${id}:state`;
-const DATA_KEY  = (id) => `user:${id}:data`;
-const LOCK_KEY  = (id) => `user:${id}:lock`;
-const MSG_KEY   = (id) => `user:${id}:msg`;
+function loadDB() {
+  try {
+    if (!fs.existsSync(DB_FILE)) return {};
+    return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+let db = loadDB();
+
+function saveDB() {
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+  } catch (e) {
+    console.error("DB SAVE ERROR:", e);
+  }
+}
 
 // ================= BOT =================
 const bot = new TelegramBot(process.env.BOT_TOKEN, {
   polling: {
     autoStart: true,
     interval: 300,
-    params: { timeout: 30 }
+    params: { timeout: 10 }
   }
 });
 
 // ================= CONFIG =================
 const FORUM_CHAT_ID = -1003255144076;
 const FORUM_TOPIC_ID = 3567;
+
 const ADMINS = [5372937661, 2121418969];
 
-// ================= STATES =================
+// ================= FSM STATES =================
 const STATES = {
   AGE: "AGE",
   MC_NICK: "MC_NICK",
@@ -40,11 +56,41 @@ const STATES = {
   DONE: "DONE"
 };
 
+// ================= MEMORY =================
+const locks = {};
+const rateLimit = {};
+const rejectTargets = {};
+const processing = {};
+
 // ================= HELPERS =================
-function formatDate(ts = Date.now()) {
-  const d = new Date(ts);
-  const pad = (n) => n.toString().padStart(2, '0');
-  return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()}, ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+function now() {
+  const d = new Date();
+  const p = (n) => n.toString().padStart(2, '0');
+  return `${p(d.getDate())}.${p(d.getMonth()+1)}.${d.getFullYear()}, ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+function checkRateLimit(id, ms = 1200) {
+  const t = Date.now();
+  if (rateLimit[id] && t - rateLimit[id] < ms) return false;
+  rateLimit[id] = t;
+  return true;
+}
+
+function getUser(chatId) {
+  if (!db[chatId]) {
+    db[chatId] = {
+      chat_id: chatId,
+      status: 'draft',
+      state: STATES.AGE,
+      created_at: Date.now()
+    };
+  }
+  return db[chatId];
+}
+
+function updateUser(chatId, data) {
+  db[chatId] = { ...getUser(chatId), ...data };
+  saveDB();
 }
 
 async function safeSend(chatId, text, opts = {}) {
@@ -55,11 +101,8 @@ async function safeSend(chatId, text, opts = {}) {
   }
 }
 
-async function safeEdit(text, app) {
+async function safeEdit(text, msgId) {
   try {
-    const msgId = await redis.get(MSG_KEY(app.chat_id));
-    if (!msgId) return;
-
     await bot.editMessageText(text, {
       chat_id: FORUM_CHAT_ID,
       message_id: msgId,
@@ -68,36 +111,6 @@ async function safeEdit(text, app) {
   } catch (e) {
     console.error("EDIT ERROR:", e.message);
   }
-}
-
-// ================= REDIS FSM =================
-async function getState(id) {
-  return await redis.get(STATE_KEY(id));
-}
-
-async function setState(id, state) {
-  await redis.set(STATE_KEY(id), state);
-}
-
-async function getData(id) {
-  const raw = await redis.get(DATA_KEY(id));
-  return raw ? JSON.parse(raw) : {};
-}
-
-async function updateData(id, newData) {
-  const old = await getData(id);
-  const merged = { ...old, ...newData };
-  await redis.set(DATA_KEY(id), JSON.stringify(merged));
-  return merged;
-}
-
-// ================= LOCK =================
-async function lockUser(id) {
-  return (await redis.set(LOCK_KEY(id), "1", "NX", "EX", 8)) === "OK";
-}
-
-async function unlockUser(id) {
-  await redis.del(LOCK_KEY(id));
 }
 
 // ================= RCON =================
@@ -113,24 +126,24 @@ async function addToWhitelist(nick) {
     await rcon.send(`whitelist add ${nick}`);
     await rcon.end();
 
-    console.log("WHITELIST:", nick);
+    console.log("WHITELIST +", nick);
   } catch (e) {
     console.error("RCON ERROR:", e.message);
   }
 }
 
 // ================= START =================
-bot.onText(/\/start/, async (msg) => {
+bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
 
   const username = msg.from.username
     ? `@${msg.from.username}`
     : msg.from.first_name;
 
-  await setState(chatId, STATES.AGE);
-  await updateData(chatId, {
+  updateUser(chatId, {
     username,
-    status: "draft"
+    status: 'draft',
+    state: STATES.AGE
   });
 
   safeSend(chatId, "📝 Заявка начата!\nВведите возраст:");
@@ -143,60 +156,56 @@ bot.on('message', async (msg) => {
 
   if (!text || text.startsWith('/')) return;
 
-  const locked = await lockUser(chatId);
-  if (!locked) return;
+  // 🔥 anti spam
+  if (!checkRateLimit(chatId)) return;
+
+  // 🔥 lock per user
+  if (locks[chatId]) return;
+  locks[chatId] = true;
 
   try {
-    let state = await getState(chatId);
-    if (!state) {
-      state = STATES.AGE;
-      await setState(chatId, state);
-    }
+    const user = getUser(chatId);
 
-    let data = await getData(chatId);
+    if (user.status !== 'draft') return;
 
-    switch (state) {
+    switch (user.state) {
 
       case STATES.AGE: {
         const age = Number(text);
 
-        if (!Number.isInteger(age) || age < 10 || age > 99) {
-          return safeSend(chatId, "❌ Введите возраст числом (10–99)");
+        if (!Number.isInteger(age) || age < 10 || age > 100) {
+          return safeSend(chatId, "❌ Введите корректный возраст (10–100)");
         }
 
-        await updateData(chatId, { age });
-        await setState(chatId, STATES.MC_NICK);
-
+        updateUser(chatId, { age, state: STATES.MC_NICK });
         return safeSend(chatId, "🎮 Ник Minecraft:");
       }
 
       case STATES.MC_NICK:
-        await updateData(chatId, { mc_nick: text });
-        await setState(chatId, STATES.INVITER);
+        updateUser(chatId, { mc_nick: text, state: STATES.INVITER });
         return safeSend(chatId, "👥 Кто пригласил?");
 
       case STATES.INVITER:
-        await updateData(chatId, { inviter: text });
-        await setState(chatId, STATES.ABOUT);
+        updateUser(chatId, { inviter: text, state: STATES.ABOUT });
         return safeSend(chatId, "🧾 О себе (24+ символа):");
 
       case STATES.ABOUT: {
-
         if (text.length < 24)
           return safeSend(chatId, "❌ Минимум 24 символа");
 
-        const finalData = await updateData(chatId, { about: text });
-        await setState(chatId, STATES.DONE);
+        updateUser(chatId, { about: text, state: STATES.DONE });
+
+        const app = getUser(chatId);
 
         const sent = await safeSend(FORUM_CHAT_ID, `
 📥 ЗАЯВКА
 
-👤 ${data.username}
-🎂 ${finalData.age}
-🎮 ${finalData.mc_nick}
-👥 ${finalData.inviter}
+👤 ${app.username}
+🎂 ${app.age}
+🎮 ${app.mc_nick}
+👥 ${app.inviter}
 
-🧾 ${finalData.about}
+🧾 ${app.about}
 `, {
           message_thread_id: FORUM_TOPIC_ID,
           reply_markup: {
@@ -208,7 +217,10 @@ bot.on('message', async (msg) => {
         });
 
         if (sent) {
-          await redis.set(MSG_KEY(chatId), sent.message_id);
+          updateUser(chatId, {
+            message_id: sent.message_id,
+            status: 'pending'
+          });
         }
 
         return safeSend(chatId, "✅ Заявка отправлена!");
@@ -216,70 +228,110 @@ bot.on('message', async (msg) => {
     }
 
   } finally {
-    await unlockUser(chatId);
+    locks[chatId] = false;
   }
 });
 
-// ================= CALLBACK =================
+// ================= CALLBACK HANDLER =================
 bot.on('callback_query', async (q) => {
   const adminId = q.from.id;
   const [action, chatIdStr] = q.data.split(':');
   const chatId = Number(chatIdStr);
 
   if (!ADMINS.includes(adminId)) {
-    return bot.answerCallbackQuery(q.id, { text: "⛔ Нет прав" });
+    return bot.answerCallbackQuery(q.id, {
+      text: "⛔ Нет прав",
+      show_alert: true
+    });
   }
 
-  const locked = await lockUser(chatId);
-  if (!locked) {
+  const app = getUser(chatId);
+
+  if (!app || app.status !== 'pending') {
+    return bot.answerCallbackQuery(q.id, { text: "Уже обработано" });
+  }
+
+  // anti double click
+  if (processing[chatId]) {
     return bot.answerCallbackQuery(q.id, { text: "Уже обрабатывается" });
   }
 
+  processing[chatId] = true;
+
   try {
-    let data = await getData(chatId);
 
     if (action === "accept") {
 
-      await addToWhitelist(data.mc_nick);
+      await addToWhitelist(app.mc_nick);
 
-      await updateData(chatId, {
-        status: "accepted",
-        accepted_at: Date.now(),
-        accepted_by: adminId
+      updateUser(chatId, {
+        status: 'accepted',
+        accepted_by: adminId,
+        accepted_at: Date.now()
       });
 
       const adminName = q.from.username
         ? `@${q.from.username}`
         : q.from.first_name;
 
-      const logText = `
+      const log = `
 ✅ ПРИНЯТА
 
 👤 Админ: ${adminName}
-🎮 ${data.mc_nick}
-🕒 ${formatDate()}
+🎮 ${app.mc_nick}
+🕒 ${now()}
 `;
 
       await safeSend(chatId, "🎉 Вы приняты! IP: fox-smp.com");
-      await safeEdit(logText, { chat_id: chatId });
+      await safeEdit(log, app.message_id);
 
       return bot.answerCallbackQuery(q.id, { text: "OK" });
     }
 
     if (action === "reject") {
-      await updateData(chatId, {
-        status: "rejected",
-        rejected_at: Date.now()
-      });
-
-      await safeSend(chatId, "❌ Заявка отклонена");
+      rejectTargets[adminId] = chatId;
       return bot.answerCallbackQuery(q.id);
     }
 
   } finally {
-    await unlockUser(chatId);
+    processing[chatId] = false;
   }
 });
 
+// ================= REJECT FLOW =================
+bot.on('message', async (msg) => {
+  const adminId = msg.from.id;
+  const text = msg.text;
+
+  if (!text || !rejectTargets[adminId]) return;
+  if (!ADMINS.includes(adminId)) return;
+
+  const chatId = rejectTargets[adminId];
+  delete rejectTargets[adminId];
+
+  const app = getUser(chatId);
+
+  updateUser(chatId, {
+    status: 'rejected',
+    reason: text
+  });
+
+  const adminName = msg.from.username
+    ? `@${msg.from.username}`
+    : msg.from.first_name;
+
+  const log = `
+❌ ОТКЛОНЕНА
+
+👤 Админ: ${adminName}
+🎮 ${app.mc_nick}
+📌 ${text}
+🕒 ${now()}
+`;
+
+  await safeSend(chatId, `❌ Отклонено\nПричина: ${text}`);
+  await safeEdit(log, app.message_id);
+});
+
 // ================= START =================
-console.log("✅ BOT RUNNING (REDIS FSM PRODUCTION)");
+console.log("✅ BOT RUNNING (FINAL STABLE VERSION)");
