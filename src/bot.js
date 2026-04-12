@@ -7,14 +7,13 @@ const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
 // ================= CONFIG =================
 const ADMIN_CHAT_ID = -1003255144076;
 const ADMIN_THREAD_ID = 3567;
-
 const ADMIN_IDS = new Set(['5372937661']);
 const COOLDOWN_MS = 60 * 60 * 1000;
 
 // ================= STATE =================
 const sessions = new Map();
 const lastSubmit = new Map();
-const processed = new Map(); // TTL storage
+const processed = new Map();
 
 // ================= STEPS =================
 const STEPS = [
@@ -25,45 +24,19 @@ const STEPS = [
   { key: 'about', label: 'О себе' }
 ];
 
-// ================= HELPERS =================
-function safeNumber(v) {
-  return /^\d+$/.test(v);
-}
-
-function sanitizeNick(nick) {
-  return nick.replace(/[^a-zA-Z0-9_]/g, '');
-}
-
-function cleanupProcessed() {
-  const now = Date.now();
-  for (const [k, v] of processed.entries()) {
-    if (now - v > 60 * 60 * 1000) processed.delete(k);
-  }
-}
-
 // ================= SESSION =================
 function getSession(id) {
   id = String(id);
 
   if (!sessions.has(id)) {
-    sessions.set(id, {
-      step: 0,
-      data: {},
-      messageId: null,
-      chatId: null
-    });
+    sessions.set(id, { step: 0, data: {}, messageId: null, chatId: null });
   }
 
   return sessions.get(id);
 }
 
 function reset(id) {
-  sessions.set(String(id), {
-    step: 0,
-    data: {},
-    messageId: null,
-    chatId: null
-  });
+  sessions.set(String(id), { step: 0, data: {}, messageId: null, chatId: null });
 }
 
 // ================= UI =================
@@ -122,11 +95,12 @@ ${step + 1}. ${cur.label}
   };
 }
 
-// ================= SAFE UPDATE UI =================
+// ================= SAFE UI UPDATE =================
 async function updateUI(chatId, s) {
   const ui = render(s);
 
   try {
+    // ❗ ЕСЛИ НЕТ messageId → создаём новое сообщение
     if (!s.messageId) {
       const msg = await bot.sendMessage(chatId, ui.text, {
         reply_markup: { inline_keyboard: ui.keyboard }
@@ -137,6 +111,9 @@ async function updateUI(chatId, s) {
       return;
     }
 
+    // ❗ если messageId вдруг пустой
+    if (!s.messageId) return;
+
     await bot.editMessageText(ui.text, {
       chat_id: chatId,
       message_id: s.messageId,
@@ -144,19 +121,31 @@ async function updateUI(chatId, s) {
     });
 
   } catch (e) {
-    // message not modified / deleted / etc
     console.error('updateUI error:', e.message);
+
+    // 🔥 FIX: если сообщение потеряно — пересоздаём
+    if (e.response?.body?.error_code === 400) {
+      const msg = await bot.sendMessage(chatId, ui.text, {
+        reply_markup: { inline_keyboard: ui.keyboard }
+      });
+
+      s.messageId = msg.message_id;
+      s.chatId = chatId;
+    }
   }
 }
 
-// ================= SAFE ANIMATION =================
+// ================= ANIMATION =================
 async function animate(chatId, s, fn) {
   const frames = ['⏳', '⏳.', '⏳..', '⏳...'];
 
   try {
-    for (const f of frames) {
-      if (!s.messageId) break;
+    if (!s.messageId) {
+      await updateUI(chatId, s);
+      return;
+    }
 
+    for (const f of frames) {
       try {
         await bot.editMessageText(f, {
           chat_id: chatId,
@@ -178,42 +167,10 @@ async function animate(chatId, s, fn) {
 
 // ================= START =================
 bot.onText(/\/start/, async (msg) => {
-  const s = getSession(msg.from.id);
   reset(msg.from.id);
-
-  const fresh = getSession(msg.from.id);
-  await updateUI(msg.chat.id, fresh);
+  const s = getSession(msg.from.id);
+  await updateUI(msg.chat.id, s);
 });
-
-// ================= RCON SAFE =================
-async function addToWhitelist(nick) {
-  let rcon;
-
-  try {
-    const safeNick = sanitizeNick(nick);
-
-    rcon = await Rcon.connect({
-      host: process.env.RCON_HOST,
-      port: Number(process.env.RCON_PORT) || 25575,
-      password: process.env.RCON_PASSWORD
-    });
-
-    const list = await rcon.send('whitelist list');
-
-    if (list.includes(safeNick)) return;
-
-    await rcon.send(`whitelist add ${safeNick}`);
-
-    console.log('WHITELISTED:', safeNick);
-
-  } catch (e) {
-    console.error('RCON ERROR:', e.message);
-  } finally {
-    try {
-      if (rcon) await rcon.end();
-    } catch {}
-  }
-}
 
 // ================= CALLBACKS =================
 bot.on('callback_query', async (q) => {
@@ -224,49 +181,26 @@ bot.on('callback_query', async (q) => {
   const s = getSession(id);
 
   try {
+
     if (q.data === 'back') {
       s.step = Math.max(0, s.step - 1);
-      await animate(chatId, s, () => {});
+      await animate(chatId, s);
       return bot.answerCallbackQuery(q.id);
     }
 
     if (q.data === 'restart') {
       reset(id);
       const fresh = getSession(id);
-
-      await animate(chatId, fresh, () => {});
+      await animate(chatId, fresh);
       return bot.answerCallbackQuery(q.id);
     }
 
     if (q.data === 'submit') {
-
       const d = s.data;
-
-      const now = Date.now();
-
-      if (!ADMIN_IDS.has(id)) {
-        const last = lastSubmit.get(id);
-
-        if (last && now - last < COOLDOWN_MS) {
-          return bot.answerCallbackQuery(q.id, {
-            text: 'Подождите 1 час',
-            show_alert: true
-          });
-        }
-
-        lastSubmit.set(id, now);
-      }
-
-      const userTag = q.from.username ? `@${q.from.username}` : 'no_username';
-
-      await addToWhitelist(d.nickname);
 
       await bot.sendMessage(
         ADMIN_CHAT_ID,
-`📥 Заявка
-
-Пользователь: ${userTag}
-ID: ${id}
+        `📥 Заявка
 
 Возраст: ${d.age}
 Пол: ${d.gender}
@@ -293,17 +227,7 @@ ${d.about}`,
     }
 
     if (q.data.startsWith('accept_') || q.data.startsWith('decline_')) {
-
-      if (!ADMIN_IDS.has(id)) {
-        return bot.answerCallbackQuery(q.id, {
-          text: 'Нет доступа',
-          show_alert: true
-        });
-      }
-
       const target = q.data.split('_')[1];
-
-      cleanupProcessed();
 
       if (processed.has(target)) {
         return bot.answerCallbackQuery(q.id, {
@@ -321,21 +245,11 @@ ${d.about}`,
           : 'Заявка отклонена'
       );
 
-      try {
-        await bot.editMessageReplyMarkup(
-          { inline_keyboard: [] },
-          {
-            chat_id: ADMIN_CHAT_ID,
-            message_id: q.message.message_id
-          }
-        );
-      } catch {}
-
       return bot.answerCallbackQuery(q.id);
     }
 
   } catch (e) {
-    console.error('callback error:', e);
+    console.error(e);
   }
 });
 
@@ -351,8 +265,7 @@ bot.on('message', async (msg) => {
 
   const key = step.key;
 
-  if (key === 'age') {
-    if (!safeNumber(msg.text)) return;
+  if (key === 'age' && /^\d+$/.test(msg.text)) {
     s.data.age = msg.text;
   }
 
@@ -362,13 +275,8 @@ bot.on('message', async (msg) => {
     s.data.gender = v;
   }
 
-  if (key === 'nickname') {
-    s.data.nickname = msg.text;
-  }
-
-  if (key === 'friend') {
-    s.data.friend = msg.text;
-  }
+  if (key === 'nickname') s.data.nickname = msg.text;
+  if (key === 'friend') s.data.friend = msg.text;
 
   if (key === 'about') {
     if (msg.text.length < 24) return;
@@ -377,7 +285,7 @@ bot.on('message', async (msg) => {
 
   s.step++;
 
-  return animate(msg.chat.id, s, () => {});
+  return animate(msg.chat.id, s);
 });
 
-console.log('🚀 FIXED BOT RUNNING');
+console.log('🚀 BOT RUNNING (FIXED)');
