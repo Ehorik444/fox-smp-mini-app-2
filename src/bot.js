@@ -1,4 +1,4 @@
-console.log("=== PRO BOT (JSON + FSM) ===");
+console.log("=== PRO BOT (FIXED FSM) ===");
 
 require('dotenv').config();
 const fs = require('fs');
@@ -30,7 +30,7 @@ const LOG_TOPIC_ID = 28258;
 
 const ADMINS = [5372937661, 2121418969];
 
-// ================= FSM STATES =================
+// ================= STATES =================
 const STATES = {
   AGE: "AGE",
   MC_NICK: "MC_NICK",
@@ -46,6 +46,7 @@ function getUser(chatId) {
       chat_id: chatId,
       status: 'draft',
       state: STATES.AGE,
+      processing: false,
       app_count: 0
     };
     saveDB();
@@ -65,7 +66,7 @@ function isSpam(chatId) {
   const now = Date.now();
   const last = spamMap.get(chatId) || 0;
 
-  if (now - last < 1500) return true;
+  if (now - last < 1200) return true;
   spamMap.set(chatId, now);
   return false;
 }
@@ -101,30 +102,38 @@ bot.onText(/\/start/, async (msg) => {
   updateUser(chatId, {
     username,
     status: 'draft',
-    state: STATES.AGE
+    state: STATES.AGE,
+    processing: false
   });
 
   bot.sendMessage(chatId, "📝 Заявка начата!\nВведите ваш возраст:");
 });
 
-// ================= STATE MACHINE =================
+// ================= FSM =================
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
-  if (!text) return;
+  // ❌ FIX 1: ignore commands
+  if (!text || text.startsWith('/')) return;
+
+  // ❌ FIX 2: spam protection
   if (isSpam(chatId)) return;
 
   const user = getUser(chatId);
 
   if (user.status !== 'draft') return;
 
+  // ❌ FIX 3: prevent double processing
+  if (user.processing) return;
+  updateUser(chatId, { processing: true });
+
   const state = user.state;
 
-  switch (state) {
+  try {
 
     // ===== AGE =====
-    case STATES.AGE: {
+    if (state === STATES.AGE) {
       updateUser(chatId, {
         age: text,
         state: STATES.MC_NICK
@@ -134,7 +143,7 @@ bot.on('message', async (msg) => {
     }
 
     // ===== MC NICK =====
-    case STATES.MC_NICK: {
+    if (state === STATES.MC_NICK) {
       updateUser(chatId, {
         mc_nick: text,
         state: STATES.INVITER
@@ -144,7 +153,7 @@ bot.on('message', async (msg) => {
     }
 
     // ===== INVITER =====
-    case STATES.INVITER: {
+    if (state === STATES.INVITER) {
       updateUser(chatId, {
         inviter: text,
         state: STATES.ABOUT
@@ -154,9 +163,11 @@ bot.on('message', async (msg) => {
     }
 
     // ===== ABOUT =====
-    case STATES.ABOUT: {
-      if (text.length < 24)
+    if (state === STATES.ABOUT) {
+
+      if (text.length < 24) {
         return bot.sendMessage(chatId, "❌ Минимум 24 символа");
+      }
 
       updateUser(chatId, {
         about: text,
@@ -195,8 +206,9 @@ bot.on('message', async (msg) => {
       return bot.sendMessage(chatId, "✅ Заявка отправлена!");
     }
 
-    default:
-      return;
+  } finally {
+    // ❌ FIX 4: always unlock processing
+    updateUser(chatId, { processing: false });
   }
 });
 
@@ -246,10 +258,10 @@ bot.on('callback_query', async (q) => {
   }
 });
 
-// ================= REJECT REASON =================
+// ================= REJECT =================
 bot.on('message', async (msg) => {
   const text = msg.text;
-  if (!text) return;
+  if (!text || text.startsWith('/')) return;
 
   const adminId = msg.from.id;
 
@@ -275,4 +287,4 @@ bot.on('message', async (msg) => {
   await sendLog(`❌ ОТКЛОНЕНА ${app.username || "unknown"} | ${text}`);
 });
 
-console.log("Bot started (PRO FSM + JSON)");
+console.log("Bot started (FIXED FSM READY)");
