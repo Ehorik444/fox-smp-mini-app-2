@@ -6,6 +6,15 @@ const path = require('path');
 const TelegramBot = require('node-telegram-bot-api');
 const { Rcon } = require('rcon-client');
 
+// ================= GLOBAL ERROR HANDLERS =================
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT:', err);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('UNHANDLED REJECTION:', err);
+});
+
 // ================= CLEAN ENV =================
 process.removeAllListeners('warning');
 process.env.NODE_DEBUG = '';
@@ -33,6 +42,16 @@ const bot = new TelegramBot(process.env.BOT_TOKEN, {
   }
 });
 
+// 🔥 FIX: авто-восстановление polling
+bot.on('polling_error', (err) => {
+  console.error('Polling error:', err.message);
+
+  setTimeout(() => {
+    console.log("🔄 Перезапуск polling...");
+    bot.startPolling();
+  }, 3000);
+});
+
 // ================= CONFIG =================
 const FORUM_CHAT_ID = -1003255144076;
 const FORUM_TOPIC_ID = 3567;
@@ -49,7 +68,8 @@ const STATES = {
   DONE: "DONE"
 };
 
-let rejectTarget = null;
+// 🔥 FIX: вместо одной переменной — словарь
+let rejectTargets = {};
 
 // ================= HELPERS =================
 function getUser(chatId) {
@@ -98,9 +118,9 @@ bot.on('message', async (msg) => {
   const user = getUser(chatId);
 
   // ================= ADMIN REJECT FLOW =================
-  if (rejectTarget && ADMINS.includes(msg.from.id)) {
-    const target = rejectTarget;
-    rejectTarget = null;
+  if (rejectTargets[msg.from.id] && ADMINS.includes(msg.from.id)) {
+    const target = rejectTargets[msg.from.id];
+    delete rejectTargets[msg.from.id];
 
     const app = getUser(target);
 
@@ -185,7 +205,7 @@ bot.on('message', async (msg) => {
   }
 });
 
-// ================= CALLBACKS (SECURE) =================
+// ================= CALLBACKS =================
 bot.on('callback_query', async (q) => {
   const adminId = q.from.id;
   const [action, chatIdStr] = q.data.split(':');
@@ -202,7 +222,11 @@ bot.on('callback_query', async (q) => {
   if (!app) return bot.answerCallbackQuery(q.id, { text: "Нет заявки" });
 
   if (action === "accept") {
-    await addToWhitelist(app.mc_nick);
+    try {
+      await addToWhitelist(app.mc_nick);
+    } catch (e) {
+      console.error("RCON ERROR:", e);
+    }
 
     updateUser(chatId, { status: 'accepted' });
 
@@ -217,7 +241,7 @@ bot.on('callback_query', async (q) => {
   }
 
   if (action === "reject") {
-    rejectTarget = chatId;
+    rejectTargets[adminId] = chatId;
     await bot.sendMessage(adminId, "Введите причину отказа:");
     return bot.answerCallbackQuery(q.id);
   }
