@@ -12,8 +12,8 @@ const ADMIN_IDS = new Set(['5372937661']);
 const COOLDOWN_MS = 60 * 60 * 1000;
 
 // ================= SAFETY =================
-process.on('unhandledRejection', (e) => console.error('UNHANDLED:', e));
-process.on('uncaughtException', (e) => console.error('CRASH:', e));
+process.on('unhandledRejection', e => console.error(e));
+process.on('uncaughtException', e => console.error(e));
 
 // ================= RCON =================
 const RCON_CONFIG = {
@@ -30,6 +30,13 @@ const processed = new Set();
 // ================= STEPS =================
 const STEPS = ['age', 'gender', 'nickname', 'friend', 'about', 'confirm'];
 
+// ================= PROGRESS BAR =================
+function progress(i) {
+  const total = 5;
+  const cur = i + 1;
+  return `Шаг ${cur}/${total}\n[${'█'.repeat(cur)}${'░'.repeat(total - cur)}]`;
+}
+
 // ================= SESSION =================
 function getSession(id) {
   id = String(id);
@@ -43,15 +50,53 @@ function reset(id) {
   sessions.set(String(id), { stepIndex: 0, data: {}, messageId: null });
 }
 
+// ================= ANIMATION =================
+async function animate(chatId, session, renderFn) {
+  const frames = ['⏳', '⏳.', '⏳..', '⏳...'];
+
+  try {
+    for (const f of frames) {
+      await bot.editMessageText(f, {
+        chat_id: chatId,
+        message_id: session.messageId,
+        reply_markup: { inline_keyboard: [] }
+      });
+
+      await new Promise(r => setTimeout(r, 70));
+    }
+
+    const ui = renderFn();
+
+    await bot.editMessageText(ui.text, {
+      chat_id: chatId,
+      message_id: session.messageId,
+      reply_markup: { inline_keyboard: ui.keyboard }
+    });
+
+  } catch (e) {
+    console.error('ANIM ERROR:', e);
+  }
+}
+
 // ================= UI =================
 function render(session) {
   const step = STEPS[session.stepIndex];
   const d = session.data;
 
+  const texts = {
+    age: 'Введите возраст',
+    gender: 'Пол (мужской / женский)',
+    nickname: 'Введите ник',
+    friend: 'Кто пригласил?',
+    about: 'О себе (мин 24 символа)'
+  };
+
   if (step === 'confirm') {
     return {
       text:
-`Проверь данные:
+`${progress(session.stepIndex)}
+
+Проверь данные:
 
 Возраст: ${d.age}
 Пол: ${d.gender}
@@ -67,22 +112,11 @@ function render(session) {
     };
   }
 
-  const texts = {
-    age: 'Введите возраст',
-    gender: 'Пол (мужской / женский)',
-    nickname: 'Введите ник',
-    friend: 'Кто пригласил?',
-    about: 'О себе (мин. 24 символа)'
-  };
-
-  const keyboard = [];
-  if (session.stepIndex > 0) {
-    keyboard.push([{ text: 'Назад', callback_data: 'back' }]);
-  }
-
   return {
-    text: texts[step],
-    keyboard
+    text: `${progress(session.stepIndex)}\n\n${texts[step]}`,
+    keyboard: session.stepIndex > 0
+      ? [[{ text: 'Назад', callback_data: 'back' }]]
+      : []
   };
 }
 
@@ -92,11 +126,12 @@ async function updateUI(chatId, session) {
 
   try {
     if (session.messageId) {
-      return await bot.editMessageText(ui.text, {
+      await bot.editMessageText(ui.text, {
         chat_id: chatId,
         message_id: session.messageId,
         reply_markup: { inline_keyboard: ui.keyboard }
       });
+      return;
     }
 
     const msg = await bot.sendMessage(chatId, ui.text, {
@@ -104,17 +139,11 @@ async function updateUI(chatId, session) {
     });
 
     session.messageId = msg.message_id;
+
   } catch (e) {
     console.error('UI ERROR:', e);
   }
 }
-
-// ================= START =================
-bot.onText(/\/start/, async (msg) => {
-  const session = getSession(msg.from.id);
-  reset(msg.from.id);
-  await updateUI(msg.chat.id, session);
-});
 
 // ================= RCON =================
 async function addToWhitelist(nick) {
@@ -126,49 +155,52 @@ async function addToWhitelist(nick) {
     const list = await rcon.send('whitelist list');
 
     if (list.includes(nick)) {
-      console.log(`⚠️ Уже в вайтлисте: ${nick}`);
+      console.log(`⚠️ already exists: ${nick}`);
       await rcon.end();
-      return { ok: false, reason: 'exists' };
+      return;
     }
 
-    const res = await rcon.send(`whitelist add ${nick}`);
+    await rcon.send(`whitelist add ${nick}`);
 
-    console.log(`✅ Добавлен в вайтлист: ${nick}`);
-    console.log(`📡 RCON: ${res}`);
+    console.log(`✅ whitelisted: ${nick}`);
 
     await rcon.end();
-    return { ok: true };
 
   } catch (e) {
-    console.error('❌ RCON ERROR:', e);
+    console.error('RCON ERROR:', e);
     try { if (rcon) await rcon.end(); } catch {}
-    return { ok: false, reason: 'error' };
   }
 }
+
+// ================= START =================
+bot.onText(/\/start/, async (msg) => {
+  const s = getSession(msg.from.id);
+  reset(msg.from.id);
+  await updateUI(msg.chat.id, s);
+});
 
 // ================= CALLBACK =================
 bot.on('callback_query', async (q) => {
   try {
     const id = String(q.from.id);
     const chatId = q.message.chat.id;
-    const session = getSession(id);
+    const s = getSession(id);
 
     if (q.data === 'back') {
-      session.stepIndex = Math.max(0, session.stepIndex - 1);
-      await updateUI(chatId, session);
+      s.stepIndex = Math.max(0, s.stepIndex - 1);
+      await animate(chatId, s, () => render(s));
       return bot.answerCallbackQuery(q.id);
     }
 
     if (q.data === 'restart') {
       reset(id);
-      await updateUI(chatId, session);
+      await animate(chatId, s, () => render(s));
       return bot.answerCallbackQuery(q.id);
     }
 
-    // ================= SUBMIT =================
     if (q.data === 'submit') {
 
-      const d = session.data;
+      const d = s.data;
 
       if (!d.age || !d.gender || !d.nickname || !d.friend || !d.about) {
         return bot.answerCallbackQuery(q.id, {
@@ -177,25 +209,10 @@ bot.on('callback_query', async (q) => {
         });
       }
 
-      if (!ADMIN_IDS.has(id)) {
-        const last = lastSubmission.get(id);
-        const now = Date.now();
-
-        if (last && now - last < COOLDOWN_MS) {
-          return bot.answerCallbackQuery(q.id, {
-            text: 'Подождите 1 час',
-            show_alert: true
-          });
-        }
-
-        lastSubmission.set(id, now);
-      }
-
-      const userTag = q.from.username ? `@${q.from.username}` : 'без username';
+      const userTag = q.from.username ? `@${q.from.username}` : 'no_username';
 
       await addToWhitelist(d.nickname);
 
-      // ================= MINIMAL ADMIN CARD =================
       await bot.sendMessage(
         ADMIN_CHAT_ID,
 `📥 Новая заявка
@@ -227,7 +244,6 @@ ${d.about}`,
       return bot.answerCallbackQuery(q.id);
     }
 
-    // ================= ADMIN ACTIONS =================
     if (q.data.startsWith('accept_') || q.data.startsWith('decline_')) {
 
       if (!ADMIN_IDS.has(id)) {
@@ -248,11 +264,12 @@ ${d.about}`,
 
       processed.add(target);
 
-      if (q.data.startsWith('accept_')) {
-        await bot.sendMessage(target, 'Заявка принята');
-      } else {
-        await bot.sendMessage(target, 'Заявка отклонена');
-      }
+      await bot.sendMessage(
+        target,
+        q.data.startsWith('accept_')
+          ? 'Заявка принята'
+          : 'Заявка отклонена'
+      );
 
       try {
         await bot.editMessageReplyMarkup(
@@ -278,42 +295,42 @@ bot.on('message', async (msg) => {
     if (!msg.text || msg.text.startsWith('/')) return;
 
     const id = String(msg.from.id);
-    const session = getSession(id);
+    const s = getSession(id);
 
-    const step = STEPS[session.stepIndex];
+    const step = STEPS[s.stepIndex];
 
     if (step === 'age') {
-      const age = Number(msg.text);
-      if (!age) return;
-      session.data.age = age;
-      session.stepIndex++;
-      return updateUI(msg.chat.id, session);
+      const v = Number(msg.text);
+      if (!v) return;
+      s.data.age = v;
+      s.stepIndex++;
+      return animate(msg.chat.id, s, () => render(s));
     }
 
     if (step === 'gender') {
       if (!['мужской', 'женский'].includes(msg.text.toLowerCase())) return;
-      session.data.gender = msg.text;
-      session.stepIndex++;
-      return updateUI(msg.chat.id, session);
+      s.data.gender = msg.text;
+      s.stepIndex++;
+      return animate(msg.chat.id, s, () => render(s));
     }
 
     if (step === 'nickname') {
-      session.data.nickname = msg.text.trim();
-      session.stepIndex++;
-      return updateUI(msg.chat.id, session);
+      s.data.nickname = msg.text.trim();
+      s.stepIndex++;
+      return animate(msg.chat.id, s, () => render(s));
     }
 
     if (step === 'friend') {
-      session.data.friend = msg.text.trim();
-      session.stepIndex++;
-      return updateUI(msg.chat.id, session);
+      s.data.friend = msg.text.trim();
+      s.stepIndex++;
+      return animate(msg.chat.id, s, () => render(s));
     }
 
     if (step === 'about') {
       if (msg.text.length < 24) return;
-      session.data.about = msg.text;
-      session.stepIndex++;
-      return updateUI(msg.chat.id, session);
+      s.data.about = msg.text;
+      s.stepIndex++;
+      return animate(msg.chat.id, s, () => render(s));
     }
 
   } catch (e) {
@@ -321,4 +338,4 @@ bot.on('message', async (msg) => {
   }
 });
 
-console.log('БОТ ЗАПУЩЕН (МИНИМАЛЬНЫЙ АДМИН ФОРМАТ)');
+console.log('🚀 BOT READY (ANIMATED + PROGRESS + STABLE)');
