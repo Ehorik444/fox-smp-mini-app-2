@@ -6,12 +6,14 @@ const token = process.env.TELEGRAM_BOT_TOKEN;
 if (!token) throw new Error('TELEGRAM_BOT_TOKEN missing');
 
 const bot = new TelegramBot(token, { polling: true });
-
 bot.deleteWebHook();
 
 // ================= CONFIG =================
 const ADMIN_CHAT_ID = -1003255144076;
 const ADMIN_THREAD_ID = 3567;
+
+const ADMIN_IDS = new Set([5372937661]);
+const COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
 // ================= FSM =================
 const STATES = {
@@ -25,7 +27,7 @@ const STATES = {
 };
 
 const sessions = new Map();
-const submitted = new Set();
+const lastSubmission = new Map();
 
 // ================= SESSION =================
 function getSession(userId) {
@@ -62,17 +64,21 @@ bot.on('callback_query', async (q) => {
   const session = getSession(userId);
 
   try {
-    if (!q.message) {
-      return bot.answerCallbackQuery(q.id);
-    }
+    if (!q.message) return bot.answerCallbackQuery(q.id);
 
     const chatId = q.message.chat.id;
 
     // ================= START APPLY =================
     if (q.data === 'start_apply') {
-      if (submitted.has(userId)) {
+
+      const lastTime = lastSubmission.get(userId);
+      const now = Date.now();
+
+      if (!ADMIN_IDS.has(userId) && lastTime && (now - lastTime < COOLDOWN_MS)) {
+        const minutesLeft = Math.ceil((COOLDOWN_MS - (now - lastTime)) / 60000);
+
         return bot.answerCallbackQuery(q.id, {
-          text: 'Вы уже подавали заявку',
+          text: `Подождите ${minutesLeft} мин`,
           show_alert: true
         });
       }
@@ -92,7 +98,9 @@ bot.on('callback_query', async (q) => {
     if (q.data === 'confirm') {
       const data = session.data;
 
-      submitted.add(userId);
+      if (!ADMIN_IDS.has(userId)) {
+        lastSubmission.set(userId, Date.now());
+      }
 
       const text = `
 📥 Новая заявка
