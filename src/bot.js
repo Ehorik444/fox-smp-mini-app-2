@@ -12,14 +12,18 @@ const LOG_TOPIC_ID = 28258;
 
 const ADMINS = [5372937661, 2121418969];
 
-// ===== DB =====
+// ===== DB (FIXED SSL) =====
 const pool = new Pool({
   host: process.env.PGHOST,
-  port: process.env.PGPORT,
+  port: Number(process.env.PGPORT),
   user: process.env.PGUSER,
   password: process.env.PGPASSWORD,
   database: process.env.PGDATABASE,
-  ssl: false
+
+  // 🔥 FIX: правильный режим для хостингов
+  ssl: {
+    rejectUnauthorized: false
+  }
 });
 
 // ===== ANTI-SPAM =====
@@ -60,9 +64,7 @@ bot.onText(/\/start/, async (msg) => {
   const username =
     msg.from.username
       ? `@${msg.from.username}`
-      : (msg.from.first_name
-          ? msg.from.first_name
-          : `id:${msg.from.id}`);
+      : msg.from.first_name || `id:${msg.from.id}`;
 
   const user = await pool.query(
     "SELECT * FROM applications WHERE chat_id=$1",
@@ -115,25 +117,21 @@ bot.on('message', async (msg) => {
     WHERE chat_id=$1
   `, [chatId]);
 
-  // STEP 1
   if (!user.age) {
     await pool.query("UPDATE applications SET age=$1 WHERE chat_id=$2", [text, chatId]);
     return bot.sendMessage(chatId, "🎮 Ник Minecraft:");
   }
 
-  // STEP 2
   if (!user.mc_nick) {
     await pool.query("UPDATE applications SET mc_nick=$1 WHERE chat_id=$2", [text, chatId]);
     return bot.sendMessage(chatId, "👥 Ник пригласившего:");
   }
 
-  // STEP 3
   if (!user.inviter) {
     await pool.query("UPDATE applications SET inviter=$1 WHERE chat_id=$2", [text, chatId]);
     return bot.sendMessage(chatId, "🧾 О себе (24+ символа):");
   }
 
-  // STEP 4
   if (!user.about) {
     if (text.length < 24)
       return bot.sendMessage(chatId, "❌ Минимум 24 символа");
@@ -147,15 +145,16 @@ bot.on('message', async (msg) => {
       [chatId]
     )).rows[0];
 
-    const message =
-`📥 ЗАЯВКА
+    const message = `
+📥 ЗАЯВКА
 
 👤 ${app.username || "нет username"}
 🎂 ${app.age}
 🎮 ${app.mc_nick}
 👥 ${app.inviter}
 
-🧾 ${app.about}`;
+🧾 ${app.about}
+`;
 
     const sent = await bot.sendMessage(FORUM_CHAT_ID, message, {
       message_thread_id: FORUM_TOPIC_ID,
@@ -196,7 +195,6 @@ bot.on('callback_query', async (q) => {
     return bot.answerCallbackQuery(q.id, { text: "Нет прав", show_alert: true });
   }
 
-  // ===== ACCEPT =====
   if (action === "accept") {
     await addToWhitelist(app.mc_nick);
 
@@ -217,7 +215,6 @@ bot.on('callback_query', async (q) => {
     return bot.answerCallbackQuery(q.id, { text: "OK" });
   }
 
-  // ===== REJECT =====
   if (action === "reject") {
     bot.rejectTarget = chatId;
     await bot.sendMessage(adminId, "Введите причину отказа:");
@@ -248,10 +245,7 @@ bot.on('message', async (msg) => {
     [chatId]
   )).rows[0];
 
-  await bot.sendMessage(chatId,
-`❌ Отклонено
-
-📌 Причина: ${text}`);
+  await bot.sendMessage(chatId, `❌ Отклонено\n\n📌 Причина: ${text}`);
 
   await bot.editMessageText("❌ ОТКЛОНЕНА", {
     chat_id: FORUM_CHAT_ID,
