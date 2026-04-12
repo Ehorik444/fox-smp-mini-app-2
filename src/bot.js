@@ -14,8 +14,9 @@ const LOG_TOPIC_ID = 28258;
 const ADMINS = [5372937661, 2121418969];
 
 // ===== STATE =====
-const users = {};
-const pendingRejects = {};
+const users = {};          // анкеты
+const pendingRejects = {}; // ожидание причины отказа
+const appMessages = {};    // message_id заявок
 
 // ===== TIME =====
 function getTime() {
@@ -26,16 +27,20 @@ function getTime() {
 
 // ===== LOG =====
 async function sendLog(text) {
-  await bot.sendMessage(FORUM_CHAT_ID, text, {
-    message_thread_id: LOG_TOPIC_ID
-  });
+  try {
+    await bot.sendMessage(FORUM_CHAT_ID, text, {
+      message_thread_id: LOG_TOPIC_ID
+    });
+  } catch (e) {
+    console.error("LOG ERROR:", e);
+  }
 }
 
 // ===== RCON =====
 async function addToWhitelist(nick) {
   const rcon = await Rcon.connect({
     host: process.env.RCON_HOST,
-    port: process.env.RCON_PORT,
+    port: Number(process.env.RCON_PORT),
     password: process.env.RCON_PASSWORD
   });
 
@@ -61,17 +66,18 @@ bot.on('callback_query', async (query) => {
   const data = query.data;
 
   const [action, chatIdStr] = data.split(':');
-  const chatId = Number(chatIdStr);
-  const user = users[chatId];
+  const targetChatId = Number(chatIdStr);
+
+  const user = users[targetChatId];
 
   // ===== RESTART =====
   if (data === 'restart') {
-    users[chatId] = {
+    users[targetChatId] = {
       step: 1,
       username: query.from.username || "нет username"
     };
 
-    bot.sendMessage(chatId, "📝 Начинаем новую заявку!\nВведите ваш возраст:");
+    await bot.sendMessage(targetChatId, "📝 Начинаем новую заявку!\nВведите возраст:");
     return bot.answerCallbackQuery(query.id);
   }
 
@@ -94,7 +100,9 @@ bot.on('callback_query', async (query) => {
     try {
       await addToWhitelist(user.mcNick);
 
-      await bot.sendMessage(chatId, "🎉 Ваша заявка принята! Вы добавлены в whitelist.");
+      await bot.sendMessage(targetChatId,
+        "🎉 Ваша заявка принята! Вы добавлены в whitelist."
+      );
 
       await bot.editMessageText("✅ ЗАЯВКА ПРИНЯТА", {
         chat_id: FORUM_CHAT_ID,
@@ -109,9 +117,11 @@ bot.on('callback_query', async (query) => {
 🕒 Время: ${getTime()}`
       );
 
-      delete users[chatId];
+      delete users[targetChatId];
+      delete appMessages[targetChatId];
 
       return bot.answerCallbackQuery(query.id, { text: "Принято" });
+
     } catch (err) {
       console.error(err);
       return bot.answerCallbackQuery(query.id, { text: "RCON ошибка" });
@@ -120,13 +130,10 @@ bot.on('callback_query', async (query) => {
 
   // ===== REJECT =====
   if (action === 'reject') {
-    pendingRejects[userId] = chatId;
+    pendingRejects[userId] = targetChatId;
 
     await bot.sendMessage(userId, "❌ Введите причину отказа заявки:");
-
-    return bot.answerCallbackQuery(query.id, {
-      text: "Введите причину"
-    });
+    return bot.answerCallbackQuery(query.id);
   }
 });
 
@@ -145,15 +152,19 @@ bot.on('message', async (msg) => {
     const targetChatId = pendingRejects[msg.from.id];
     const targetUser = users[targetChatId];
 
+    if (!targetUser) {
+      delete pendingRejects[msg.from.id];
+      return;
+    }
+
     const reason = text;
 
-    if (targetUser) {
-      await bot.sendMessage(targetChatId,
+    await bot.sendMessage(targetChatId,
 `❌ Ваша заявка отклонена
 
 📌 Причина: ${reason}
 
-📝 Вы можете подать новую заявку через /start`,
+📝 Нажмите ниже, чтобы подать снова`,
       {
         reply_markup: {
           inline_keyboard: [
@@ -162,24 +173,27 @@ bot.on('message', async (msg) => {
         }
       });
 
+    const msgId = appMessages[targetChatId];
+
+    if (msgId) {
       await bot.editMessageText("❌ ЗАЯВКА ОТКЛОНЕНА", {
         chat_id: FORUM_CHAT_ID,
-        message_id: targetUser.messageId
+        message_id: msgId
       });
+    }
 
-      await sendLog(
+    await sendLog(
 `❌ ЗАЯВКА ОТКЛОНЕНА
 
 👤 Админ: @${msg.from.username || "no_username"} (${msg.from.id})
 🎮 Игрок: ${targetUser.mcNick}
 📌 Причина: ${reason}
 🕒 Время: ${getTime()}`
-      );
+    );
 
-      delete users[targetChatId];
-    }
-
+    delete users[targetChatId];
     delete pendingRejects[msg.from.id];
+
     return;
   }
 
@@ -242,7 +256,7 @@ ${user.about}`;
       }
     );
 
-    user.messageId = sent.message_id;
+    appMessages[chatId] = sent.message_id;
 
     return bot.sendMessage(chatId, "✅ Заявка отправлена!");
   }
