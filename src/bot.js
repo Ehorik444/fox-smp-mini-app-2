@@ -1,4 +1,4 @@
-console.log("=== PRO BOT (FIXED FSM) ===");
+console.log("=== PRO BOT (CLEAN FSM + FIXED ROUTER) ===");
 
 require('dotenv').config();
 const fs = require('fs');
@@ -30,7 +30,7 @@ const LOG_TOPIC_ID = 28258;
 
 const ADMINS = [5372937661, 2121418969];
 
-// ================= STATES =================
+// ================= FSM STATES =================
 const STATES = {
   AGE: "AGE",
   MC_NICK: "MC_NICK",
@@ -38,6 +38,9 @@ const STATES = {
   ABOUT: "ABOUT",
   DONE: "DONE"
 };
+
+// ================= ADMIN STATE =================
+let rejectTarget = null;
 
 // ================= HELPERS =================
 function getUser(chatId) {
@@ -109,28 +112,49 @@ bot.onText(/\/start/, async (msg) => {
   bot.sendMessage(chatId, "📝 Заявка начата!\nВведите ваш возраст:");
 });
 
-// ================= FSM =================
+// ================= SINGLE ROUTER (FIXED ARCHITECTURE) =================
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
-  // ❌ FIX 1: ignore commands
+  // ❌ ignore empty + commands
   if (!text || text.startsWith('/')) return;
-
-  // ❌ FIX 2: spam protection
-  if (isSpam(chatId)) return;
 
   const user = getUser(chatId);
 
-  if (user.status !== 'draft') return;
+  // ================= ADMIN FLOW FIRST =================
+  if (ADMINS.includes(msg.from.id) && rejectTarget) {
+    const target = rejectTarget;
+    rejectTarget = null;
 
-  // ❌ FIX 3: prevent double processing
+    const app = getUser(target);
+
+    updateUser(target, {
+      status: 'rejected',
+      reason: text
+    });
+
+    await bot.sendMessage(target, `❌ Отклонено\n\n📌 Причина: ${text}`);
+
+    await bot.editMessageText("❌ ОТКЛОНЕНА", {
+      chat_id: FORUM_CHAT_ID,
+      message_id: app.message_id
+    });
+
+    await sendLog(`❌ ОТКЛОНЕНА ${app.username || "unknown"} | ${text}`);
+
+    return;
+  }
+
+  // ================= USER FLOW =================
+  if (isSpam(chatId)) return;
+  if (user.status !== 'draft') return;
   if (user.processing) return;
+
   updateUser(chatId, { processing: true });
 
-  const state = user.state;
-
   try {
+    const state = user.state;
 
     // ===== AGE =====
     if (state === STATES.AGE) {
@@ -164,10 +188,8 @@ bot.on('message', async (msg) => {
 
     // ===== ABOUT =====
     if (state === STATES.ABOUT) {
-
-      if (text.length < 24) {
+      if (text.length < 24)
         return bot.sendMessage(chatId, "❌ Минимум 24 символа");
-      }
 
       updateUser(chatId, {
         about: text,
@@ -200,14 +222,13 @@ bot.on('message', async (msg) => {
       updateUser(chatId, {
         message_id: sent.message_id,
         status: 'pending',
-        app_count: (app.app_count || 0) + 1
+        app_count: (user.app_count || 0) + 1
       });
 
       return bot.sendMessage(chatId, "✅ Заявка отправлена!");
     }
 
   } finally {
-    // ❌ FIX 4: always unlock processing
     updateUser(chatId, { processing: false });
   }
 });
@@ -249,42 +270,13 @@ bot.on('callback_query', async (q) => {
     return bot.answerCallbackQuery(q.id, { text: "OK" });
   }
 
-  // ===== REJECT =====
+  // ===== REJECT INIT =====
   if (action === "reject") {
-    bot.rejectTarget = chatId;
+    rejectTarget = chatId;
 
     await bot.sendMessage(adminId, "Введите причину отказа:");
     return bot.answerCallbackQuery(q.id);
   }
 });
 
-// ================= REJECT =================
-bot.on('message', async (msg) => {
-  const text = msg.text;
-  if (!text || text.startsWith('/')) return;
-
-  const adminId = msg.from.id;
-
-  if (!bot.rejectTarget || !ADMINS.includes(adminId)) return;
-
-  const chatId = bot.rejectTarget;
-  bot.rejectTarget = null;
-
-  const app = getUser(chatId);
-
-  updateUser(chatId, {
-    status: 'rejected',
-    reason: text
-  });
-
-  await bot.sendMessage(chatId, `❌ Отклонено\n\n📌 Причина: ${text}`);
-
-  await bot.editMessageText("❌ ОТКЛОНЕНА", {
-    chat_id: FORUM_CHAT_ID,
-    message_id: app.message_id
-  });
-
-  await sendLog(`❌ ОТКЛОНЕНА ${app.username || "unknown"} | ${text}`);
-});
-
-console.log("Bot started (FIXED FSM READY)");
+console.log("Bot started (CLEAN PRO FSM READY)");
