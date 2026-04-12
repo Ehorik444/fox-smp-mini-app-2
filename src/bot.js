@@ -1,63 +1,105 @@
-console.log("=== PRO BOT (STABLE CLEAN VERSION) ===");
+console.log("=== PRO BOT (WEBHOOK MODE) ===");
 
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
+const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const { Rcon } = require('rcon-client');
 
-// ================= GLOBAL ERROR HANDLERS =================
-process.on('uncaughtException', (err) => {
-  console.error('UNCAUGHT:', err);
+// ================= CONFIG =================
+const TOKEN = process.env.BOT_TOKEN;
+const WEBHOOK_URL = process.env.WEBHOOK_URL; // https://your-domain.com
+const PORT = process.env.PORT || 3000;
+
+const FORUM_CHAT_ID = -1003255144076;
+const FORUM_TOPIC_ID = 3567;
+
+const ADMINS = [5372937661, 2121418969];
+
+// ================= APP =================
+const app = express();
+app.use(express.json());
+
+// ================= BOT =================
+const bot = new TelegramBot(TOKEN);
+
+// ================= WEBHOOK SET =================
+const webhookPath = `/bot${TOKEN}`;
+
+bot.setWebHook(`${WEBHOOK_URL}${webhookPath}`)
+  .then(() => console.log("✅ Webhook установлен"))
+  .catch(console.error);
+
+app.post(webhookPath, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
 });
 
-process.on('unhandledRejection', (err) => {
-  console.error('UNHANDLED REJECTION:', err);
-});
+// ================= GLOBAL ERRORS =================
+process.on('uncaughtException', console.error);
+process.on('unhandledRejection', console.error);
 
-// ================= CLEAN ENV =================
-process.removeAllListeners('warning');
-process.env.NODE_DEBUG = '';
-process.env.DEBUG = '';
-
-// ================= FILE DB =================
+// ================= DB =================
 const DB_FILE = path.join(__dirname, 'applications.json');
 
 function loadDB() {
-  if (!fs.existsSync(DB_FILE)) return {};
-  return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+  try {
+    if (!fs.existsSync(DB_FILE)) return {};
+    return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+  } catch {
+    return {};
+  }
 }
 
 function saveDB() {
-  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 let db = loadDB();
 
-// ================= BOT =================
-const bot = new TelegramBot(process.env.BOT_TOKEN, {
-  polling: {
-    interval: 1000,
-    autoStart: true
+// ================= HELPERS =================
+async function safeSend(chatId, text, opts = {}) {
+  try {
+    return await bot.sendMessage(chatId, text, opts);
+  } catch (e) {
+    console.error("SEND ERROR:", e.message);
   }
-});
+}
 
-// 🔥 FIX: авто-восстановление polling
-bot.on('polling_error', (err) => {
-  console.error('Polling error:', err.message);
+async function safeEdit(text, app) {
+  try {
+    await bot.editMessageText(text, {
+      chat_id: FORUM_CHAT_ID,
+      message_id: app.message_id,
+      message_thread_id: FORUM_TOPIC_ID
+    });
+  } catch (e) {
+    console.error("EDIT ERROR:", e.message);
+  }
+}
 
-  setTimeout(() => {
-    console.log("🔄 Перезапуск polling...");
-    bot.startPolling();
-  }, 3000);
-});
+// ================= RCON =================
+async function addToWhitelist(nick) {
+  try {
+    const rcon = await Rcon.connect({
+      host: process.env.RCON_HOST,
+      port: Number(process.env.RCON_PORT),
+      password: process.env.RCON_PASSWORD
+    });
 
-// ================= CONFIG =================
-const FORUM_CHAT_ID = -1003255144076;
-const FORUM_TOPIC_ID = 3567;
-const LOG_TOPIC_ID = 28258;
+    await rcon.send(`whitelist add ${nick}`);
+    await rcon.end();
 
-const ADMINS = [5372937661, 2121418969];
+    console.log(`✅ ${nick} added`);
+  } catch (e) {
+    console.error("RCON ERROR:", e.message);
+  }
+}
 
 // ================= FSM =================
 const STATES = {
@@ -68,10 +110,8 @@ const STATES = {
   DONE: "DONE"
 };
 
-// 🔥 FIX: вместо одной переменной — словарь
 let rejectTargets = {};
 
-// ================= HELPERS =================
 function getUser(chatId) {
   if (!db[chatId]) {
     db[chatId] = {
@@ -97,7 +137,7 @@ bot.onText(/\/start/, (msg) => {
   const username =
     msg.from.username
       ? `@${msg.from.username}`
-      : msg.from.first_name || `id:${msg.from.id}`;
+      : msg.from.first_name;
 
   updateUser(chatId, {
     username,
@@ -105,10 +145,10 @@ bot.onText(/\/start/, (msg) => {
     state: STATES.AGE
   });
 
-  bot.sendMessage(chatId, "📝 Заявка начата!\nВведите ваш возраст:");
+  safeSend(chatId, "📝 Начнем. Введите возраст:");
 });
 
-// ================= MESSAGE ROUTER =================
+// ================= MESSAGE =================
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
@@ -117,87 +157,74 @@ bot.on('message', async (msg) => {
 
   const user = getUser(chatId);
 
-  // ================= ADMIN REJECT FLOW =================
+  // ADMIN REJECT
   if (rejectTargets[msg.from.id] && ADMINS.includes(msg.from.id)) {
     const target = rejectTargets[msg.from.id];
     delete rejectTargets[msg.from.id];
 
     const app = getUser(target);
 
-    updateUser(target, {
-      status: 'rejected',
-      reason: text
-    });
+    updateUser(target, { status: 'rejected', reason: text });
 
-    await bot.sendMessage(target, `❌ Отклонено\n\n📌 Причина: ${text}`);
-
-    await bot.editMessageText("❌ ОТКЛОНЕНА", {
-      chat_id: FORUM_CHAT_ID,
-      message_id: app.message_id
-    });
-
+    await safeSend(target, `❌ Отклонено\nПричина: ${text}`);
+    await safeEdit("❌ ОТКЛОНЕНА", app);
     return;
   }
 
-  // ================= USER GUARD =================
-  if (user.status !== 'draft') return;
-  if (user.processing) return;
+  if (user.status !== 'draft' || user.processing) return;
 
   updateUser(chatId, { processing: true });
 
   try {
-    const state = user.state;
+    switch (user.state) {
 
-    if (state === STATES.AGE) {
-      updateUser(chatId, { age: text, state: STATES.MC_NICK });
-      return bot.sendMessage(chatId, "🎮 Ник Minecraft:");
-    }
+      case STATES.AGE:
+        updateUser(chatId, { age: text, state: STATES.MC_NICK });
+        return safeSend(chatId, "Ник Minecraft:");
 
-    if (state === STATES.MC_NICK) {
-      updateUser(chatId, { mc_nick: text, state: STATES.INVITER });
-      return bot.sendMessage(chatId, "👥 Ник пригласившего:");
-    }
+      case STATES.MC_NICK:
+        updateUser(chatId, { mc_nick: text, state: STATES.INVITER });
+        return safeSend(chatId, "Кто пригласил?");
 
-    if (state === STATES.INVITER) {
-      updateUser(chatId, { inviter: text, state: STATES.ABOUT });
-      return bot.sendMessage(chatId, "🧾 О себе (24+ символа):");
-    }
+      case STATES.INVITER:
+        updateUser(chatId, { inviter: text, state: STATES.ABOUT });
+        return safeSend(chatId, "О себе (24+):");
 
-    if (state === STATES.ABOUT) {
-      if (text.length < 24)
-        return bot.sendMessage(chatId, "❌ Минимум 24 символа");
+      case STATES.ABOUT:
+        if (text.length < 24)
+          return safeSend(chatId, "Минимум 24 символа");
 
-      updateUser(chatId, { about: text, state: STATES.DONE });
+        updateUser(chatId, { about: text, state: STATES.DONE });
 
-      const app = getUser(chatId);
+        const appData = getUser(chatId);
 
-      const message = `
+        const sent = await safeSend(FORUM_CHAT_ID, `
 📥 ЗАЯВКА
 
-👤 ${app.username || "нет username"}
-🎂 ${app.age}
-🎮 ${app.mc_nick}
-👥 ${app.inviter}
+👤 ${appData.username}
+🎂 ${appData.age}
+🎮 ${appData.mc_nick}
+👥 ${appData.inviter}
 
-🧾 ${app.about}
-`;
+🧾 ${appData.about}
+`, {
+          message_thread_id: FORUM_TOPIC_ID,
+          reply_markup: {
+            inline_keyboard: [[
+              { text: "✅", callback_data: `accept:${chatId}` },
+              { text: "❌", callback_data: `reject:${chatId}` }
+            ]]
+          }
+        });
 
-      const sent = await bot.sendMessage(FORUM_CHAT_ID, message, {
-        message_thread_id: FORUM_TOPIC_ID,
-        reply_markup: {
-          inline_keyboard: [[
-            { text: "✅ Принять", callback_data: `accept:${chatId}` },
-            { text: "❌ Отклонить", callback_data: `reject:${chatId}` }
-          ]]
-        }
-      });
+        if (!sent) return;
 
-      updateUser(chatId, {
-        message_id: sent.message_id,
-        status: 'pending'
-      });
+        updateUser(chatId, {
+          message_id: sent.message_id,
+          status: 'pending'
+        });
 
-      return bot.sendMessage(chatId, "✅ Заявка отправлена!");
+        return safeSend(chatId, "Заявка отправлена!");
     }
 
   } finally {
@@ -205,46 +232,45 @@ bot.on('message', async (msg) => {
   }
 });
 
-// ================= CALLBACKS =================
+// ================= CALLBACK =================
 bot.on('callback_query', async (q) => {
   const adminId = q.from.id;
   const [action, chatIdStr] = q.data.split(':');
   const chatId = Number(chatIdStr);
 
   if (!ADMINS.includes(adminId)) {
-    return bot.answerCallbackQuery(q.id, {
-      text: "⛔ Нет прав",
-      show_alert: true
-    });
+    return bot.answerCallbackQuery(q.id, { text: "Нет прав", show_alert: true });
   }
 
-  const app = getUser(chatId);
-  if (!app) return bot.answerCallbackQuery(q.id, { text: "Нет заявки" });
+  const appData = getUser(chatId);
+
+  if (!appData || appData.status !== 'pending') {
+    return bot.answerCallbackQuery(q.id, { text: "Уже обработано" });
+  }
 
   if (action === "accept") {
-    try {
-      await addToWhitelist(app.mc_nick);
-    } catch (e) {
-      console.error("RCON ERROR:", e);
-    }
+    await addToWhitelist(appData.mc_nick);
 
     updateUser(chatId, { status: 'accepted' });
 
-    await bot.sendMessage(chatId, "🎉 Вы приняты!");
+    await safeSend(chatId, "🎉 Принят!");
+    await safeEdit("✅ ПРИНЯТА", appData);
 
-    await bot.editMessageText("✅ ПРИНЯТА", {
-      chat_id: FORUM_CHAT_ID,
-      message_id: app.message_id
-    });
-
-    return bot.answerCallbackQuery(q.id, { text: "OK" });
+    return bot.answerCallbackQuery(q.id);
   }
 
   if (action === "reject") {
     rejectTargets[adminId] = chatId;
-    await bot.sendMessage(adminId, "Введите причину отказа:");
+    await safeSend(adminId, "Причина отказа:");
     return bot.answerCallbackQuery(q.id);
   }
 });
 
-console.log("Bot started (CLEAN STABLE VERSION)");
+// ================= SERVER =================
+app.get('/', (req, res) => {
+  res.send("Bot is running ✅");
+});
+
+app.listen(PORT, () => {
+  console.log(`🚀 Server started on port ${PORT}`);
+});
