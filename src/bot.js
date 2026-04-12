@@ -4,36 +4,67 @@ require('dotenv').config();
 
 // ========= CONFIG =========
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
-
-const redis = new Redis(process.env.REDIS_URL); // например redis://127.0.0.1:6379
+const redis = new Redis(process.env.REDIS_URL);
 
 const ADMIN_CHAT_ID = -1003255144076;
 const ADMIN_THREAD_ID = 3567;
 
 const SESSION_TTL = 600; // 10 минут
 
-// ========= HELPERS =========
-async function safe(fn) {
+// ========= QUEUE (анти-флуд) =========
+const queue = [];
+let sending = false;
+
+function sleep(ms) {
+  return new Promise(res => setTimeout(res, ms));
+}
+
+async function safe(fn, retries = 3) {
   try {
     return await fn();
   } catch (e) {
-    console.error('TG ERROR:', e?.response?.body || e.message);
+    const err = e?.response?.body;
+
+    if (err?.error_code === 429 && retries > 0) {
+      const wait = (err.parameters?.retry_after || 1) * 1000;
+
+      console.log(`⏳ Flood control: жду ${wait / 1000}s`);
+      await sleep(wait);
+
+      return safe(fn, retries - 1);
+    }
+
+    console.error('TG ERROR:', err || e.message);
     return null;
   }
 }
 
+async function enqueue(task) {
+  queue.push(task);
+  processQueue();
+}
+
+async function processQueue() {
+  if (sending) return;
+  sending = true;
+
+  while (queue.length) {
+    const task = queue.shift();
+    await safe(task);
+    await sleep(80); // мягкий лимит
+  }
+
+  sending = false;
+}
+
+// ========= SESSION =========
 async function getSession(id) {
   const data = await redis.get(`session:${id}`);
   return data ? JSON.parse(data) : { step: 0, data: {} };
 }
 
 async function setSession(id, session) {
-  await redis.set(
-    `session:${id}`,
-    JSON.stringify(session),
-    'EX',
-    SESSION_TTL
-  );
+  await redis.set(`session:${id}`, JSON.stringify(session), 'EX', SESSION_TTL);
 }
 
 async function resetSession(id) {
@@ -46,12 +77,9 @@ bot.onText(/\/start/, async (msg) => {
 
   await resetSession(id);
 
-  await setSession(id, {
-    step: 1,
-    data: {}
-  });
+  await setSession(id, { step: 1, data: {} });
 
-  bot.sendMessage(msg.chat.id, '👋 Введи возраст:');
+  enqueue(() => bot.sendMessage(msg.chat.id, '👋 Введи возраст:'));
 });
 
 // ========= FLOW =========
@@ -64,22 +92,31 @@ bot.on('message', async (msg) => {
   const text = msg.text.trim();
 
   switch (s.step) {
-    case 1:
-      s.data.age = text;
+    case 1: {
+      const age = parseInt(text);
+
+      if (isNaN(age) || age < 10 || age > 100) {
+        return enqueue(() =>
+          bot.sendMessage(msg.chat.id, '❌ Введи нормальный возраст (например: 16)')
+        );
+      }
+
+      s.data.age = age;
       s.step = 2;
 
       await setSession(id, s);
 
-      return bot.sendMessage(msg.chat.id, 'Выбери пол:', {
-        reply_markup: {
-          inline_keyboard: [
-            [
+      return enqueue(() =>
+        bot.sendMessage(msg.chat.id, 'Выбери пол:', {
+          reply_markup: {
+            inline_keyboard: [[
               { text: 'Мужской', callback_data: 'gender_male' },
               { text: 'Женский', callback_data: 'gender_female' }
-            ]
-          ]
-        }
-      });
+            ]]
+          }
+        })
+      );
+    }
 
     case 3:
       s.data.nickname = text;
@@ -87,7 +124,9 @@ bot.on('message', async (msg) => {
 
       await setSession(id, s);
 
-      return bot.sendMessage(msg.chat.id, 'Кто пригласил?');
+      return enqueue(() =>
+        bot.sendMessage(msg.chat.id, 'Кто пригласил?')
+      );
 
     case 4:
       s.data.friend = text;
@@ -95,7 +134,9 @@ bot.on('message', async (msg) => {
 
       await setSession(id, s);
 
-      return bot.sendMessage(msg.chat.id, 'О себе:');
+      return enqueue(() =>
+        bot.sendMessage(msg.chat.id, 'О себе:')
+      );
 
     case 5:
       s.data.about = text;
@@ -105,8 +146,9 @@ bot.on('message', async (msg) => {
 
       const d = s.data;
 
-      return bot.sendMessage(
-        msg.chat.id,
+      return enqueue(() =>
+        bot.sendMessage(
+          msg.chat.id,
 `📥 Проверь анкету:
 
 Возраст: ${d.age}
@@ -116,13 +158,14 @@ bot.on('message', async (msg) => {
 
 О себе:
 ${d.about}`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '✅ Отправить', callback_data: 'submit' }]
-            ]
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '✅ Отправить', callback_data: 'submit' }]
+              ]
+            }
           }
-        }
+        )
       );
   }
 });
@@ -132,7 +175,6 @@ bot.on('callback_query', async (q) => {
   const id = String(q.from.id);
   let s = await getSession(id);
 
-  // ❌ если сессия умерла
   if (!s || !s.step) {
     return bot.answerCallbackQuery(q.id, {
       text: '❌ Сессия истекла. Напиши /start',
@@ -147,21 +189,27 @@ bot.on('callback_query', async (q) => {
 
     await setSession(id, s);
 
-    await bot.editMessageReplyMarkup(
-      { inline_keyboard: [] },
-      {
-        chat_id: q.message.chat.id,
-        message_id: q.message.message_id
-      }
+    enqueue(() =>
+      bot.editMessageReplyMarkup(
+        { inline_keyboard: [] },
+        {
+          chat_id: q.message.chat.id,
+          message_id: q.message.message_id
+        }
+      )
     );
 
-    await bot.sendMessage(id, 'Введи ник:');
+    enqueue(() =>
+      bot.sendMessage(id, 'Введи ник:')
+    );
 
     return bot.answerCallbackQuery(q.id);
   }
 
   // ========= SUBMIT =========
   if (q.data === 'submit') {
+    const ageNum = parseInt(s.data.age);
+
     const d = {
       age: s.data.age || 'не указано',
       gender: s.data.gender || 'не указано',
@@ -170,9 +218,33 @@ bot.on('callback_query', async (q) => {
       about: s.data.about || 'не указано'
     };
 
-    await safe(() =>
-      bot.sendMessage(
-        ADMIN_CHAT_ID,
+    // 🟢 авто-принятие
+    if (!isNaN(ageNum) && ageNum >= 14) {
+      enqueue(() =>
+        bot.sendMessage(
+          ADMIN_CHAT_ID,
+`🟢 Автопринятая заявка
+
+Возраст: ${d.age}
+Пол: ${d.gender}
+Ник: ${d.nickname}
+Пригласил: ${d.friend}
+
+О себе:
+${d.about}`,
+          { message_thread_id: ADMIN_THREAD_ID }
+        )
+      );
+
+      enqueue(() =>
+        bot.sendMessage(id, '✅ Заявка автоматически принята!')
+      );
+
+    } else {
+      // 🟡 ручная модерация
+      enqueue(() =>
+        bot.sendMessage(
+          ADMIN_CHAT_ID,
 `📥 Новая заявка
 
 Возраст: ${d.age}
@@ -182,29 +254,31 @@ bot.on('callback_query', async (q) => {
 
 О себе:
 ${d.about}`,
-        {
-          message_thread_id: ADMIN_THREAD_ID,
-          reply_markup: {
-            inline_keyboard: [
-              [
+          {
+            message_thread_id: ADMIN_THREAD_ID,
+            reply_markup: {
+              inline_keyboard: [[
                 { text: '✅ Принять', callback_data: `accept_${id}` },
                 { text: '❌ Отклонить', callback_data: `decline_${id}` }
-              ]
-            ]
+              ]]
+            }
           }
+        )
+      );
+
+      enqueue(() =>
+        bot.sendMessage(id, '⏳ Заявка отправлена на рассмотрение')
+      );
+    }
+
+    enqueue(() =>
+      bot.editMessageReplyMarkup(
+        { inline_keyboard: [] },
+        {
+          chat_id: q.message.chat.id,
+          message_id: q.message.message_id
         }
       )
-    );
-
-    await bot.sendMessage(id, '✅ Заявка отправлена!');
-
-    // удаляем кнопку
-    await bot.editMessageReplyMarkup(
-      { inline_keyboard: [] },
-      {
-        chat_id: q.message.chat.id,
-        message_id: q.message.message_id
-      }
     );
 
     await resetSession(id);
@@ -216,7 +290,7 @@ ${d.about}`,
   if (q.data.startsWith('accept_') || q.data.startsWith('decline_')) {
     const target = q.data.split('_')[1];
 
-    await safe(() =>
+    enqueue(() =>
       bot.sendMessage(
         target,
         q.data.startsWith('accept_')
@@ -229,7 +303,7 @@ ${d.about}`,
   }
 });
 
-// ========= LOG =========
+// ========= START LOG =========
 bot.getMe()
-  .then(() => console.log('🚀 BOT RUNNING WITH REDIS'))
+  .then(() => console.log('🚀 BOT RUNNING (ANTI-FLOOD + REDIS)'))
   .catch(console.error);
