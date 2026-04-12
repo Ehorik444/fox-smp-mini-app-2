@@ -1,4 +1,4 @@
-console.log("=== PRO BOT (ULTRA STABLE + LOG FORMAT) ===");
+console.log("=== PRO BOT (FIXED STABLE VERSION) ===");
 
 require('dotenv').config();
 const fs = require('fs');
@@ -56,10 +56,6 @@ bot.on('polling_error', (err) => {
   console.error('Polling error:', err.message);
   setTimeout(startPollingSafe, 5000);
 });
-
-setInterval(() => {
-  console.log("💓 ALIVE:", new Date().toISOString());
-}, 60000);
 
 // ================= CONFIG =================
 const FORUM_CHAT_ID = -1003255144076;
@@ -125,22 +121,27 @@ async function addToWhitelist(nick) {
   }
 }
 
-// ================= USERS =================
+// ================= DB FIXED =================
 function getUser(chatId) {
   if (!db[chatId]) {
     db[chatId] = {
       chat_id: chatId,
       status: 'draft',
       state: STATES.AGE,
-      processing: false
+      processing: false,
+      locked: false,   // 🔥 FIX
+      created_at: Date.now()
     };
-    saveDB();
   }
   return db[chatId];
 }
 
+// 🔥 FIXED SAFE UPDATE (no overwrite bug)
 function updateUser(chatId, data) {
-  db[chatId] = { ...getUser(chatId), ...data };
+  db[chatId] = {
+    ...db[chatId],
+    ...data
+  };
   saveDB();
 }
 
@@ -155,7 +156,8 @@ bot.onText(/\/start/, (msg) => {
   updateUser(chatId, {
     username,
     status: 'draft',
-    state: STATES.AGE
+    state: STATES.AGE,
+    locked: false
   });
 
   safeSend(chatId, "📝 Заявка начата!\nВведите возраст:");
@@ -181,7 +183,8 @@ bot.on('message', async (msg) => {
       status: 'rejected',
       reason: text,
       rejected_by: msg.from.id,
-      rejected_at: Date.now()
+      rejected_at: Date.now(),
+      locked: false
     });
 
     const adminName = msg.from.username
@@ -253,7 +256,8 @@ bot.on('message', async (msg) => {
 
         updateUser(chatId, {
           message_id: sent.message_id,
-          status: 'pending'
+          status: 'pending',
+          locked: false
         });
 
         return safeSend(chatId, "✅ Заявка отправлена!");
@@ -264,7 +268,7 @@ bot.on('message', async (msg) => {
   }
 });
 
-// ================= CALLBACK =================
+// ================= CALLBACK (FIXED CORE BUG) =================
 bot.on('callback_query', async (q) => {
   const adminId = q.from.id;
   const [action, chatIdStr] = q.data.split(':');
@@ -279,24 +283,34 @@ bot.on('callback_query', async (q) => {
 
   const app = getUser(chatId);
 
+  // 🔥 FIX: защита от дублей
+  if (app.locked) {
+    return bot.answerCallbackQuery(q.id, { text: "Уже обрабатывается" });
+  }
+
   if (!app || app.status !== 'pending') {
     return bot.answerCallbackQuery(q.id, { text: "Уже обработано" });
   }
 
   if (action === "accept") {
-    await addToWhitelist(app.mc_nick);
 
-    updateUser(chatId, {
-      status: 'accepted',
-      accepted_by: adminId,
-      accepted_at: Date.now()
-    });
+    updateUser(chatId, { locked: true });
 
-    const adminName = q.from.username
-      ? `@${q.from.username}`
-      : q.from.first_name;
+    try {
+      await addToWhitelist(app.mc_nick);
 
-    const logText = `
+      updateUser(chatId, {
+        status: 'accepted',
+        accepted_by: adminId,
+        accepted_at: Date.now(),
+        locked: false
+      });
+
+      const adminName = q.from.username
+        ? `@${q.from.username}`
+        : q.from.first_name;
+
+      const logText = `
 ✅ ПРИНЯТА
 
 👤 Админ: ${adminName}
@@ -304,15 +318,19 @@ bot.on('callback_query', async (q) => {
 🕒 ${formatDate()}
 `;
 
-    await safeSend(chatId, "🎉 Вы приняты! вот айпи сервера: fox-smp.com");
-    await safeEdit(logText, app);
+      await safeSend(chatId, "🎉 Вы приняты! вот айпи сервера: fox-smp.com");
+      await safeEdit(logText, app);
 
-    return bot.answerCallbackQuery(q.id, { text: "OK" });
+      return bot.answerCallbackQuery(q.id, { text: "OK" });
+
+    } catch (e) {
+      updateUser(chatId, { locked: false });
+      throw e;
+    }
   }
 
   if (action === "reject") {
     rejectTargets[adminId] = chatId;
-    await safeSend(adminId, "Введите причину:");
     return bot.answerCallbackQuery(q.id);
   }
 });
@@ -320,4 +338,4 @@ bot.on('callback_query', async (q) => {
 // ================= START =================
 startPollingSafe();
 
-console.log("✅ BOT STARTED");
+console.log("✅ BOT STARTED (FIXED)");
