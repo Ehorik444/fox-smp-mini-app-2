@@ -32,11 +32,14 @@ const ADMIN_IDS = new Set([...ADMIN_CHAT_IDS]);
 
 const userStates = {};
 
+// 🔑 Храним ID пользователей, которые уже подали заявку
+const submittedApplicants = new Set();
+
 // Кнопки главного меню (только подача заявки и правила)
 const mainMenuKeyboard = {
     inline_keyboard: [
         [
-            { text: '📝 Подать заявку', callback_data: 'apply_start' }
+            { text: '📝 Подать заявку', callback_ 'apply_start' }
         ],
         [
             { text: '📜 Правила сервера', url: 'https://docs.google.com/document/d/14Bonb5QdGe6vyxn6lqCneB8foplgdlK8yBwuvVV0kQY/edit?usp=sharing' }
@@ -44,10 +47,10 @@ const mainMenuKeyboard = {
     ]
 };
 
-// /start
-bot.onText(/\/start/, (msg) => {
+// /startbot.onText(/\/start/, (msg) => {
     bot.sendMessage(
-        msg.chat.id,        '🦊 Fox SMP — официальный бот\nВыберите действие:',
+        msg.chat.id,
+        '🦊 Fox SMP — официальный бот\nВыберите действие:',
         { reply_markup: mainMenuKeyboard }
     ).then(sent => {
         userStates[msg.chat.id] = { menuMessageId: sent.message_id };
@@ -64,6 +67,12 @@ bot.on('callback_query', (query) => {
 
     switch (data) {
         case 'apply_start':
+            // 🔑 Проверяем, подавал ли пользователь заявку раньше
+            if (submittedApplicants.has(chatId)) {
+                bot.answerCallbackQuery(query.id, { text: '❌ Вы уже подавали заявку ранее. Повторная подача запрещена.', show_alert: true });
+                return;
+            }
+
             const state = userStates[chatId];
             const menuMsgId = state?.menuMessageId;
 
@@ -87,8 +96,7 @@ bot.on('callback_query', (query) => {
             bot.answerCallbackQuery(query.id);
             break;
 
-        // Подтверждение заявки
-        case 'confirm_submit':
+        // Подтверждение заявки        case 'confirm_submit':
             const stateSubmit = userStates[chatId];
             if (!stateSubmit) {
                 bot.answerCallbackQuery(query.id, { text: '❌ Ошибка: данные утеряны.', show_alert: true });
@@ -96,8 +104,12 @@ bot.on('callback_query', (query) => {
             }
 
             if (!stateSubmit.username) {
-                bot.answerCallbackQuery(query.id, { text: '❌ Ошибка: не удалось определить ваш ник. Попробуйте ещё раз.', show_alert: true });                return;
+                bot.answerCallbackQuery(query.id, { text: '❌ Ошибка: не удалось определить ваш ник. Попробуйте ещё раз.', show_alert: true });
+                return;
             }
+
+            // 🔑 Добавляем пользователя в список подавших заявку
+            submittedApplicants.add(chatId);
 
             const appText = `
 Новая заявка на сервер Fox SMP:
@@ -105,6 +117,7 @@ bot.on('callback_query', (query) => {
 - Возраст: ${stateSubmit.age}
 - Пол: ${stateSubmit.gender}
 - Ник: ${stateSubmit.nickname}
+- Приглашен от: ${stateSubmit.friend_nickname || 'Не указан'}
 - О себе: ${stateSubmit.about}
             `.trim();
             bot.sendMessage(FORUM_CHAT_ID, appText, { message_thread_id: THREAD_ID })
@@ -132,20 +145,26 @@ bot.on('callback_query', (query) => {
                     });
 
                     bot.editMessageText('✅ Заявка отправлена. Админы скоро её рассмотрят.', {
-                        chat_id: chatId,
-                        message_id: query.message.message_id
+                        chat_id: chatId,                        message_id: query.message.message_id
                     });
                 })
                 .catch(err => {
                     console.error('Ошибка отправки заявки:', err);
+                    // 🔑 Удаляем из списка, если ошибка
+                    submittedApplicants.delete(chatId);
                     bot.answerCallbackQuery(query.id, { text: '❌ Ошибка. Попробуйте позже.', show_alert: true });
                 });
 
             delete userStates[chatId];
             break;
 
-        // Повторить заявку
-        case 'restart_apply':            userStates[chatId] = { step: 'age' };
+        // Повторить заявку (только если пользователь ещё не подавал)
+        case 'restart_apply':
+            if (submittedApplicants.has(chatId)) {
+                bot.answerCallbackQuery(query.id, { text: '❌ Вы уже подавали заявку ранее. Повторная подача запрещена.', show_alert: true });
+                return;
+            }
+            userStates[chatId] = { step: 'age' };
             bot.editMessageText('Введите возраст:', {
                 chat_id: chatId,
                 message_id: query.message.message_id
@@ -175,7 +194,6 @@ bot.on('callback_query', (query) => {
 
                 // 🔑 Отправляем RCON-команду
                 const rcon = new Rcon(RCON_CONFIG);
-
                 rcon.connect()
                     .then(() => {
                         console.log(`[RCON] Отправляем whitelist add ${targetNickname}`);
@@ -194,7 +212,8 @@ bot.on('callback_query', (query) => {
                     .catch(err => {
                         console.error('[RCON ERROR]:', err.message);
                         // Уведомляем админа об ошибке
-                        bot.sendMessage(userId, `⚠️ Ошибка RCON: ${err.message}. Проверьте настройки.`);                        bot.answerCallbackQuery(query.id, { text: `❌ Ошибка RCON: ${err.message}`, show_alert: true });
+                        bot.sendMessage(userId, `⚠️ Ошибка RCON: ${err.message}. Проверьте настройки.`);
+                        bot.answerCallbackQuery(query.id, { text: `❌ Ошибка RCON: ${err.message}`, show_alert: true });
                     })
                     .finally(() => {
                         rcon.end(); // Закрываем соединение
@@ -225,8 +244,12 @@ bot.on('callback_query', (query) => {
                 message_id: query.message.message_id
             }).catch(() => {});
             break;
-
         case 'retry_apply':
+            if (submittedApplicants.has(userId)) {
+                bot.sendMessage(userId, '❌ Вы уже подавали заявку ранее. Повторная подача запрещена.');
+                bot.answerCallbackQuery(query.id, { text: '❌ Повторная подача запрещена.', show_alert: true });
+                return;
+            }
             userStates[userId] = { step: 'age' };
             bot.sendMessage(userId, 'Введите возраст:');
             bot.answerCallbackQuery(query.id);
@@ -243,7 +266,8 @@ bot.on('message', (msg) => {
     if (!userStates[chatId]) return;
     const state = userStates[chatId];
 
-    switch (state.step) {        case 'age':
+    switch (state.step) {
+        case 'age':
             if (/^\d+$/.test(text) && parseInt(text) > 0) {
                 state.age = text;
                 state.step = 'gender';
@@ -265,6 +289,12 @@ bot.on('message', (msg) => {
 
         case 'nickname':
             state.nickname = text;
+            state.step = 'friend_nickname';
+            bot.sendMessage(chatId, 'Введите ник друга, который вас пригласил (или "-" если никто):');
+            break;
+        // 🔑 Новый шаг: ник друга
+        case 'friend_nickname':
+            state.friend_nickname = text.trim() === '-' ? 'Не указан' : text;
             state.step = 'about';
             bot.sendMessage(chatId, 'Расскажите о себе (минимум 24 символа):');
             break;
@@ -284,6 +314,7 @@ bot.on('message', (msg) => {
 - Возраст: ${state.age}
 - Пол: ${state.gender}
 - Ник: ${state.nickname}
+- Приглашен от: ${state.friend_nickname}
 - О себе: ${state.about}
 
 Всё верно? Нажмите ✅ Да или ❌ Изменить.
@@ -292,7 +323,8 @@ bot.on('message', (msg) => {
             const keyboard = {
                 inline_keyboard: [
                     [
-                        { text: '✅ Да', callback_data: 'confirm_submit' },                        { text: '❌ Изменить', callback_data: 'restart_apply' }
+                        { text: '✅ Да', callback_ 'confirm_submit' },
+                        { text: '❌ Изменить', callback_ 'restart_apply' }
                     ]
                 ]
             };
