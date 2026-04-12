@@ -14,7 +14,7 @@ bot.onText(/\/start/, (msg) => {
   bot.sendMessage(
     chatId,
     "⚠️ Бот временно не работает.\n\n" +
-    "Пишите сюда:\n" +
+    "Пишите в поддержку:\n" +
     GROUP_LINK
   );
 });
