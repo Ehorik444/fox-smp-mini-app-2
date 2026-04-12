@@ -1,4 +1,5 @@
 const TelegramBot = require('node-telegram-bot-api');
+const { Rcon } = require('rcon-client');
 require('dotenv').config();
 
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
@@ -10,44 +11,69 @@ const ADMIN_THREAD_ID = 3567;
 const ADMIN_IDS = new Set(['5372937661']);
 const COOLDOWN_MS = 60 * 60 * 1000;
 
-// ================= SAFETY (FIX CRASHES) =================
-process.on('unhandledRejection', (err) => {
-  console.error('UNHANDLED REJECTION:', err);
-});
+// ================= RCON =================
+const RCON_CONFIG = {
+  host: process.env.RCON_HOST,
+  port: Number(process.env.RCON_PORT) || 25575,
+  password: process.env.RCON_PASSWORD
+};
 
-process.on('uncaughtException', (err) => {
-  console.error('UNCAUGHT EXCEPTION:', err);
-});
+// ================= SAFETY =================
+process.on('unhandledRejection', (err) => console.error('UNHANDLED:', err));
+process.on('uncaughtException', (err) => console.error('CRASH:', err));
 
 // ================= STORAGE =================
 const sessions = new Map();
 const lastSubmission = new Map();
 const processed = new Set();
 
-// ================= STEPS =================
+// ================= FSM =================
 const STEPS = ['age', 'gender', 'nickname', 'friend', 'about', 'confirm'];
 
 // ================= SESSION =================
-function getSession(userId) {
-  const id = String(userId);
-
+function getSession(id) {
+  id = String(id);
   if (!sessions.has(id)) {
-    sessions.set(id, {
-      stepIndex: 0,
-      data: {},
-      messageId: null
-    });
+    sessions.set(id, { stepIndex: 0, data: {}, messageId: null });
   }
-
   return sessions.get(id);
 }
 
-function reset(userId) {
-  sessions.set(String(userId), {
-    stepIndex: 0,
-    data: {},
-    messageId: null
-  });
+function reset(id) {
+  sessions.set(String(id), { stepIndex: 0, data: {}, messageId: null });
+}
+
+// ================= RCON WHITELIST =================
+async function addToWhitelist(nick) {
+  let rcon;
+
+  try {
+    rcon = await Rcon.connect(RCON_CONFIG);
+
+    const list = await rcon.send('whitelist list');
+
+    if (list.includes(nick)) {
+      console.log(`⚠️ Already in whitelist: ${nick}`);
+      await rcon.end();
+      return { ok: false, reason: 'exists' };
+    }
+
+    const res = await rcon.send(`whitelist add ${nick}`);
+
+    console.log(`✅ Whitelisted: ${nick}`);
+    console.log(`📡 RCON: ${res}`);
+
+    await rcon.end();
+
+    return { ok: true };
+
+  } catch (e) {
+    console.error(`❌ RCON ERROR (${nick}):`, e);
+
+    try { if (rcon) await rcon.end(); } catch {}
+
+    return { ok: false, reason: 'error' };
+  }
 }
 
 // ================= UI =================
@@ -58,7 +84,7 @@ function render(session) {
   if (step === 'confirm') {
     return {
       text:
-`📥 Проверь заявку:
+`📥 ПРОВЕРКА ЗАЯВКИ
 
 Возраст: ${d.age}
 Пол: ${d.gender}
@@ -69,17 +95,17 @@ function render(session) {
 Отправить заявку?`,
       keyboard: [
         [{ text: '✅ Отправить', callback_data: 'submit' }],
-        [{ text: '🔄 Начать заново', callback_data: 'restart' }]
+        [{ text: '🔄 Заново', callback_data: 'restart' }]
       ]
     };
   }
 
   const texts = {
-    age: '📋 Шаг 1/5: Введите возраст',
-    gender: '📋 Шаг 2/5: Пол (мужской / женский)',
-    nickname: '📋 Шаг 3/5: Введите ник',
-    friend: '📋 Шаг 4/5: Кто пригласил?',
-    about: '📋 Шаг 5/5: О себе (24+ символа)'
+    age: '📋 Введите возраст',
+    gender: '📋 Пол (мужской / женский)',
+    nickname: '📋 Ник',
+    friend: '📋 Кто пригласил?',
+    about: '📋 О себе (24+ символа)'
   };
 
   const keyboard = [];
@@ -87,13 +113,10 @@ function render(session) {
     keyboard.push([{ text: '⬅ Назад', callback_data: 'back' }]);
   }
 
-  return {
-    text: texts[step],
-    keyboard
-  };
+  return { text: texts[step], keyboard };
 }
 
-// ================= UI UPDATE =================
+// ================= UPDATE UI =================
 async function updateUI(chatId, session) {
   const ui = render(session);
 
@@ -111,15 +134,8 @@ async function updateUI(chatId, session) {
     });
 
     session.messageId = msg.message_id;
-    return msg;
-
   } catch (e) {
-    const msg = await bot.sendMessage(chatId, ui.text, {
-      reply_markup: { inline_keyboard: ui.keyboard }
-    });
-
-    session.messageId = msg.message_id;
-    return msg;
+    console.error('UI ERROR:', e);
   }
 }
 
@@ -127,18 +143,15 @@ async function updateUI(chatId, session) {
 bot.onText(/\/start/, async (msg) => {
   const session = getSession(msg.from.id);
   reset(msg.from.id);
-
   await updateUI(msg.chat.id, session);
 });
 
 // ================= CALLBACK =================
 bot.on('callback_query', async (q) => {
   try {
-    if (!q?.message) return bot.answerCallbackQuery(q.id);
-
-    const userId = String(q.from.id);
+    const id = String(q.from.id);
     const chatId = q.message.chat.id;
-    const session = getSession(userId);
+    const session = getSession(id);
 
     if (q.data === 'back') {
       session.stepIndex = Math.max(0, session.stepIndex - 1);
@@ -147,7 +160,7 @@ bot.on('callback_query', async (q) => {
     }
 
     if (q.data === 'restart') {
-      reset(userId);
+      reset(id);
       await updateUI(chatId, session);
       return bot.answerCallbackQuery(q.id);
     }
@@ -157,7 +170,6 @@ bot.on('callback_query', async (q) => {
 
       const d = session.data;
 
-      // validation
       if (!d.age || !d.gender || !d.nickname || !d.friend || !d.about) {
         return bot.answerCallbackQuery(q.id, {
           text: 'Заполните все поля',
@@ -165,28 +177,29 @@ bot.on('callback_query', async (q) => {
         });
       }
 
-      // cooldown (only non-admin)
-      if (!ADMIN_IDS.has(userId)) {
-        const last = lastSubmission.get(userId);
+      // cooldown (except admin)
+      if (!ADMIN_IDS.has(id)) {
+        const last = lastSubmission.get(id);
         const now = Date.now();
 
         if (last && now - last < COOLDOWN_MS) {
-          const mins = Math.ceil((COOLDOWN_MS - (now - last)) / 60000);
-
           return bot.answerCallbackQuery(q.id, {
-            text: `Подождите ${mins} мин`,
+            text: 'Подождите 1 час',
             show_alert: true
           });
         }
 
-        lastSubmission.set(userId, now);
+        lastSubmission.set(id, now);
       }
 
-      const userTag = q.from.username
-        ? `@${q.from.username}`
-        : 'no_username';
+      const userTag = q.from.username ? `@${q.from.username}` : 'no_username';
 
-      // ================= SAFE DISCORD CARD (NO Markdown!) =================
+      // ================= RCON =================
+      const rconResult = await addToWhitelist(d.nickname);
+
+      console.log('RCON RESULT:', rconResult);
+
+      // ================= SEND TO ADMIN =================
       await bot.sendMessage(
         ADMIN_CHAT_ID,
 `🟦━━━━━━━━━━━━━━🟦
@@ -194,11 +207,7 @@ bot.on('callback_query', async (q) => {
 🟦━━━━━━━━━━━━━━🟦
 
 👤 User: ${userTag}
-🆔 ID: ${userId}
-
-━━━━━━━━━━━━━━
-📊 INFO
-━━━━━━━━━━━━━━
+🆔 ID: ${id}
 
 🎂 Age: ${d.age}
 ⚧ Gender: ${d.gender}
@@ -213,44 +222,44 @@ ${d.about}
           message_thread_id: ADMIN_THREAD_ID,
           reply_markup: {
             inline_keyboard: [[
-              { text: '✅ Accept', callback_data: `accept_${userId}` },
-              { text: '❌ Decline', callback_data: `decline_${userId}` }
+              { text: '✅ Accept', callback_data: `accept_${id}` },
+              { text: '❌ Decline', callback_data: `decline_${id}` }
             ]]
           }
         }
       );
 
-      reset(userId);
+      reset(id);
 
       await bot.sendMessage(chatId, '✅ Заявка отправлена');
       return bot.answerCallbackQuery(q.id);
     }
 
-    // ================= ADMIN ACTIONS =================
+    // ================= ADMIN =================
     if (q.data.startsWith('accept_') || q.data.startsWith('decline_')) {
 
-      if (!ADMIN_IDS.has(userId)) {
+      if (!ADMIN_IDS.has(id)) {
         return bot.answerCallbackQuery(q.id, {
           text: 'Нет доступа',
           show_alert: true
         });
       }
 
-      const targetId = q.data.split('_')[1];
+      const target = q.data.split('_')[1];
 
-      if (processed.has(targetId)) {
+      if (processed.has(target)) {
         return bot.answerCallbackQuery(q.id, {
           text: 'Уже обработано',
           show_alert: true
         });
       }
 
-      processed.add(targetId);
+      processed.add(target);
 
       if (q.data.startsWith('accept_')) {
-        await bot.sendMessage(targetId, '✅ Ваша заявка принята');
+        await bot.sendMessage(target, '✅ Заявка принята');
       } else {
-        await bot.sendMessage(targetId, '❌ Ваша заявка отклонена');
+        await bot.sendMessage(target, '❌ Заявка отклонена');
       }
 
       try {
@@ -266,58 +275,53 @@ ${d.about}
       return bot.answerCallbackQuery(q.id);
     }
 
-    return bot.answerCallbackQuery(q.id);
-
   } catch (e) {
-    console.error('ERROR:', e);
+    console.error('CALLBACK ERROR:', e);
   }
 });
 
-// ================= MESSAGE FSM =================
+// ================= FSM =================
 bot.on('message', async (msg) => {
   try {
     if (!msg.text || msg.text.startsWith('/')) return;
 
-    const userId = String(msg.from.id);
-    const chatId = msg.chat.id;
-    const session = getSession(userId);
+    const id = String(msg.from.id);
+    const session = getSession(id);
 
     const step = STEPS[session.stepIndex];
-    if (!step) return;
 
     if (step === 'age') {
       const age = Number(msg.text);
-      if (!age || age < 10 || age > 100) return;
+      if (!age) return;
       session.data.age = age;
       session.stepIndex++;
-      return updateUI(chatId, session);
+      return updateUI(msg.chat.id, session);
     }
 
     if (step === 'gender') {
-      const g = msg.text.toLowerCase();
-      if (!['мужской', 'женский'].includes(g)) return;
-      session.data.gender = g;
+      if (!['мужской', 'женский'].includes(msg.text.toLowerCase())) return;
+      session.data.gender = msg.text;
       session.stepIndex++;
-      return updateUI(chatId, session);
+      return updateUI(msg.chat.id, session);
     }
 
     if (step === 'nickname') {
       session.data.nickname = msg.text.trim();
       session.stepIndex++;
-      return updateUI(chatId, session);
+      return updateUI(msg.chat.id, session);
     }
 
     if (step === 'friend') {
       session.data.friend = msg.text.trim();
       session.stepIndex++;
-      return updateUI(chatId, session);
+      return updateUI(msg.chat.id, session);
     }
 
     if (step === 'about') {
       if (msg.text.length < 24) return;
       session.data.about = msg.text;
       session.stepIndex++;
-      return updateUI(chatId, session);
+      return updateUI(msg.chat.id, session);
     }
 
   } catch (e) {
@@ -325,4 +329,4 @@ bot.on('message', async (msg) => {
   }
 });
 
-console.log('🚀 STABLE BOT RUNNING (NO CRASH VERSION)');
+console.log('🚀 BOT ONLINE (FULL FIXED VERSION)');
