@@ -1,17 +1,17 @@
-console.log("=== PRO BOT (FINAL NO-REDIS STABLE VERSION) ===");
+console.log("=== PRO BOT (FINAL NO-REDIS PRODUCTION) ===");
 
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const path = require('path');
 
+// ================= GLOBAL PROTECTION =================
+process.on('uncaughtException', console.error);
+process.on('unhandledRejection', console.error);
+
 // ================= BOT =================
 const bot = new TelegramBot(process.env.BOT_TOKEN, {
-  polling: {
-    autoStart: false,
-    interval: 300,
-    params: { timeout: 30 }
-  }
+  polling: false
 });
 
 // ================= CONFIG =================
@@ -19,7 +19,7 @@ const FORUM_CHAT_ID = -1003255144076;
 const FORUM_TOPIC_ID = 3567;
 const ADMINS = [5372937661, 2121418969];
 
-// ================= DB (FILE SAFE) =================
+// ================= DB =================
 const DB_FILE = path.join(__dirname, "applications.json");
 
 let db = loadDB();
@@ -41,7 +41,7 @@ function saveDB() {
   }
 }
 
-// ================= FSM STATES =================
+// ================= STATES =================
 const STATES = {
   AGE: "AGE",
   MC: "MC",
@@ -50,7 +50,7 @@ const STATES = {
   DONE: "DONE"
 };
 
-// ================= MEMORY LOCKS =================
+// ================= LOCKS =================
 const locks = {};
 const rejectQueue = {};
 
@@ -58,7 +58,7 @@ const rejectQueue = {};
 function now() {
   const d = new Date();
   const p = (n) => n.toString().padStart(2, "0");
-  return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}, ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  return `${p(d.getDate())}.${p(d.getMonth()+1)}.${d.getFullYear()}, ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
 function getUser(id) {
@@ -101,13 +101,42 @@ bot.onText(/\/start/, (msg) => {
   send(id, "📝 Заявка начата!\nВведите возраст:");
 });
 
-// ================= MESSAGE HANDLER =================
+// ================= MAIN MESSAGE =================
 bot.on("message", async (msg) => {
   const id = msg.chat.id;
   const text = msg.text;
 
   if (!text || text.startsWith("/")) return;
 
+  // ===== REJECT FLOW =====
+  if (rejectQueue[id] && ADMINS.includes(id)) {
+    const targetId = rejectQueue[id];
+    delete rejectQueue[id];
+
+    const reason = text;
+    const app = getUser(targetId);
+
+    updateUser(targetId, { status: "rejected" });
+
+    await send(targetId, `❌ Отклонено\nПричина: ${reason}`);
+
+    await bot.editMessageText(`
+❌ ОТКЛОНЕНА
+
+👤 Админ: ${msg.from.username ? "@" + msg.from.username : msg.from.first_name}
+🎮 ${app.mc}
+📌 ${reason}
+🕒 ${now()}
+`, {
+      chat_id: FORUM_CHAT_ID,
+      message_id: app.message_id,
+      message_thread_id: FORUM_TOPIC_ID
+    });
+
+    return;
+  }
+
+  // ===== LOCK =====
   if (locks[id]) return;
   locks[id] = true;
 
@@ -121,7 +150,7 @@ bot.on("message", async (msg) => {
       case STATES.AGE:
         const age = Number(text);
 
-        if (!age || age < 10 || age > 99) {
+        if (!Number.isInteger(age) || age < 10 || age > 99) {
           return send(id, "❌ Введите корректный возраст (10-99)");
         }
 
@@ -141,7 +170,11 @@ bot.on("message", async (msg) => {
           return send(id, "❌ Минимум 24 символа");
         }
 
-        updateUser(id, { about: text, state: STATES.DONE, status: "pending" });
+        updateUser(id, {
+          about: text,
+          state: STATES.DONE,
+          status: "pending"
+        });
 
         const app = getUser(id);
 
@@ -164,7 +197,9 @@ bot.on("message", async (msg) => {
           }
         });
 
-        updateUser(id, { message_id: sent?.message_id });
+        if (sent) {
+          updateUser(id, { message_id: sent.message_id });
+        }
 
         return send(id, "✅ Заявка отправлена!");
     }
@@ -194,17 +229,15 @@ bot.on("callback_query", async (q) => {
 
     updateUser(id, { status: "accepted" });
 
-    const log = `
+    await send(id, "🎉 Вы приняты! IP: fox-smp.com");
+
+    await bot.editMessageText(`
 ✅ ПРИНЯТА
 
 👤 Админ: ${q.from.username ? "@" + q.from.username : q.from.first_name}
 🎮 ${app.mc}
 🕒 ${now()}
-`;
-
-    await send(id, "🎉 Вы приняты! IP: fox-smp.com");
-
-    await bot.editMessageText(log, {
+`, {
       chat_id: FORUM_CHAT_ID,
       message_id: app.message_id,
       message_thread_id: FORUM_TOPIC_ID
@@ -219,40 +252,26 @@ bot.on("callback_query", async (q) => {
   }
 });
 
-// ================= REJECT FLOW =================
-bot.on("message", async (msg) => {
-  const admin = msg.from.id;
+// ================= ANTI-409 START =================
+async function startBot() {
+  try {
+    console.log("🔄 Stopping previous polling...");
+    await bot.stopPolling();
+  } catch {}
 
-  if (!rejectQueue[admin]) return;
-  if (!ADMINS.includes(admin)) return;
+  setTimeout(() => {
+    console.log("🚀 Starting polling (ANTI-409 MODE)");
 
-  const id = rejectQueue[admin];
-  delete rejectQueue[admin];
+    bot.startPolling({
+      restart: true,
+      dropPendingUpdates: true,
+      interval: 300,
+      params: { timeout: 30 }
+    });
 
-  const reason = msg.text;
-  const app = getUser(id);
+  }, 1500);
+}
 
-  updateUser(id, { status: "rejected" });
+startBot();
 
-  const log = `
-❌ ОТКЛОНЕНА
-
-👤 Админ: ${msg.from.username ? "@" + msg.from.username : msg.from.first_name}
-🎮 ${app.mc}
-📌 ${reason}
-🕒 ${now()}
-`;
-
-  await send(id, `❌ Отклонено\nПричина: ${reason}`);
-
-  await bot.editMessageText(log, {
-    chat_id: FORUM_CHAT_ID,
-    message_id: app.message_id,
-    message_thread_id: FORUM_TOPIC_ID
-  });
-});
-
-// ================= START =================
-bot.startPolling();
-
-console.log("✅ BOT RUNNING (NO REDIS FINAL)");
+console.log("✅ BOT RUNNING (ANTI-409 ENABLED)");
